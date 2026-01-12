@@ -1,0 +1,108 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Jupyter Notebook
+.ipynb_checkpoints
+*.ipynb
+
+# PyTorch
+*.pth
+*.pt
+*.ckpt
+
+# Data files (too large for git)
+*.raw
+*.mzML
+*.mzml
+*.mgf
+*.csv
+*.tsv
+*.h5
+*.hdf5
+*.parquet
+*.lance
+
+# Lance datasets
+lance_dataset/
+*_data/
+*.lance/
+
+# Logs and outputs
+logs/
+*.log
+*.err
+*.out
+lightning_logs/
+tensorboard/
+
+# Model checkpoints
+
+*.ckpt
+models/
+saved_models/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cluster specific
+*.sbatch.tmp
+slurm-*.out
+
+# Keep metadata directory but ignore CSV files
+!data/metadata/README.md
+data/metadata/*.csv
+data/metadata/*.tsv
+
+# Keep example/template files
+!**/example_*.csv
+!**/template_*.csv
+
+# External tools (download separately - see tools/README.md)
+tools/ThermoRawFileParser/
+tools/ScanHeadsman/
+!tools/README.md
+*.exe
+*.dll
+
+# Internal documentation ()
+PUBLICATION_CHECKLIST.md
+PERSONAL_INFO_REMOVED.md
+PATH_CLEANUP_SUMMARY.md
+FORMATTING_COMPLETE.md
+REVIEWER_GUIDE.md
+START_HERE.md
+SUMMARY.md
+ZENODO_UPLOAD_CHECKLIST.md
+GITHUB_RELEASE_STEPS.md
+
+QUICK_START_GITHUB.md
