@@ -1,6 +1,17 @@
+"""
+Training script for spectral quality assessment using Non-Negative PU (Positive-Unlabeled) loss.
+
+This script implements training with:
+- Distributed Data Parallel (DDP) support for multi-GPU training
+- Lance dataset format for efficient data loading
+
+- Per-dataset loss tracking and logging
+- Early stopping based on validation recall
+"""
+
 import os
 import datetime
-import logging  # <-- Import logging
+import logging
 
 # Enable MPS fallback for Mac
 os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
@@ -33,20 +44,18 @@ import matplotlib.pyplot as plt
 from src.transformers.model_nn_pu_loss_detach_diff_polarity import SimpleSpectraTransformer
 from lightning.pytorch.strategies import DDPStrategy
 from torch.utils.data import Dataset
-from typing import Dict, Any  # <-- Added for type hinting
+from typing import Dict, Any
 import pandas as pd
 
-# --- New Logging Setup ---
-# Get rank info early for logging. Fallback to "0" if not in a DDP context.
+# Initialize logging with rank information for distributed training
+# Falls back to "0" if not in a DDP context
 RANK = os.environ.get("LOCAL_RANK", os.environ.get("SLURM_PROCID", "0"))
 logging.basicConfig(
     level=logging.INFO,
     format=f"[Rank {RANK}] %(asctime)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
-# CORRECTED: Renamed global logger to avoid conflict
 script_logger = logging.getLogger(__name__)
-# --- End New Logging Setup ---
 
 SEED = 1
 pl.seed_everything(SEED, workers=True)
@@ -54,8 +63,14 @@ pl.seed_everything(SEED, workers=True)
 
 class LanceIndexDataset(Dataset):
     """
-    A PyTorch Dataset that returns only the index.
-    The actual data loading will be done in the collate_fn.
+    PyTorch Dataset that returns indices for efficient distributed data loading.
+    
+    This dataset only stores indices; actual data loading is deferred to the
+    collate function to enable efficient batched reads from Lance format.
+    
+    Args:
+        lance_dataset_path: Path to the Lance dataset directory
+        rank: Process rank for logging purposes (default: "0")
     """
 
     def __init__(self, lance_dataset_path: str, rank: str = "0"):
@@ -84,11 +99,10 @@ class LanceIndexDataset(Dataset):
 
 class LanceBatchCollator:
     """
-    A collate_fn class that receives a batch of *indices*,
-    fetches them from Lance in one go, and pads them.
+    Collate function that receives a batch of indices, fetches them from Lance
+    in a single batched call, and pads the sequences.
 
-    --- MODIFIED ---
-    Now conditionally includes 'dataset_id' if it exists in the Lance table.
+    Conditionally includes 'dataset_id' if it exists in the Lance table schema.
     """
 
     def __init__(self, lance_dataset_path: str, rank: str = "0"):
@@ -137,8 +151,7 @@ class LanceBatchCollator:
             mz_padded[i, :length] = mz_arrays[i]
             intensity_padded[i, :length] = intensity_arrays[i]
 
-        # --- NEW: Conditionally add dataset_id ---
-        # .get() will return None if the 'dataset_id' column doesn't exist
+        # Conditionally add dataset_id if present in the dataset schema
         dataset_ids = data_batch.get("dataset_id", None)
 
         batch_dict = {
@@ -159,6 +172,30 @@ class LanceBatchCollator:
 
 
 class ImprovedPyTorchSklearnWrapper:
+    """
+    Wrapper class that provides a sklearn-like interface for PyTorch Lightning models.
+    
+    Handles model initialization, device placement, data loading, and training
+    with distributed training support via PyTorch Lightning.
+    
+    Args:
+        model: PyTorch Lightning model instance
+        train_dataset: Training dataset
+        val_dataset: Validation dataset
+        d_model: Model dimension (default: 64)
+        n_layers: Number of transformer layers (default: 2)
+        dropout: Dropout rate (default: 0.3)
+        linear_lr: Learning rate for linear layers (default: 0.0004755751039)
+        encoder_lr: Learning rate for encoder layers (default: 0.0004755751039)
+        batch_size: Batch size per GPU (default: 64)
+        epochs: Number of training epochs (default: 5)
+        device: Target device (None for auto-detection)
+        num_workers: Number of DataLoader workers per GPU (default: 4)
+        instrument_embedding_dim: Dimension of instrument embedding (default: 32)
+        force_cpu: Force CPU usage even if GPU is available (default: False)
+        logger: PyTorch Lightning logger instance (default: None)
+    """
+    
     def __init__(
         self,
         model,
@@ -203,8 +240,6 @@ class ImprovedPyTorchSklearnWrapper:
         else:
             self.device = torch.device(device)
 
-        # CORRECTED: Use script_logger (global logger)
-        # CORRECTED: Fixed syntax error
         script_logger.info(f"Using device: {self.device}")
         self.model = self.model.to(self.device)
 
@@ -223,6 +258,15 @@ class ImprovedPyTorchSklearnWrapper:
         self.classes_ = np.array([-1.0, 1.0])
 
     def predict_proba(self, indices):
+        """
+        Predict class probabilities for given indices.
+        
+        Args:
+            indices: Array of dataset indices to predict
+            
+        Returns:
+            Array of shape (n_samples, 2) with probabilities for negative and positive classes
+        """
         self.model.eval()
         test_dataset = Subset(self.val_dataset, indices)
         test_loader = DataLoader(
@@ -254,8 +298,20 @@ class ImprovedPyTorchSklearnWrapper:
         callbacks=None,
         train_lance_path=None,
         val_lance_path=None,
-    ):  # <-- Add new args
-
+    ):
+        """
+        Train the model using PyTorch Lightning.
+        
+        Args:
+            train_indices: Array of training dataset indices
+            val_indices: Array of validation dataset indices (optional)
+            callbacks: List of PyTorch Lightning callbacks (optional)
+            train_lance_path: Path to training Lance dataset
+            val_lance_path: Path to validation Lance dataset
+            
+        Returns:
+            Tuple of (self, trainer) for chaining
+        """
         script_logger.info(f"Wrapper.fit() called.")
 
         # Get rank for the collator
@@ -270,7 +326,7 @@ class ImprovedPyTorchSklearnWrapper:
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
-            collate_fn=train_collator,  # <-- Use the collator class instance
+            collate_fn=train_collator,
             persistent_workers=True,
             pin_memory=True,
             shuffle=True,
@@ -284,7 +340,7 @@ class ImprovedPyTorchSklearnWrapper:
                 self.val_dataset,
                 batch_size=self.batch_size,
                 num_workers=self.num_workers,
-                collate_fn=val_collator,  # <-- Use the collator class instance
+                collate_fn=val_collator,
                 persistent_workers=True,
                 pin_memory=True,
                 shuffle=False,
@@ -300,19 +356,19 @@ class ImprovedPyTorchSklearnWrapper:
         )
         callbacks.append(early_stop_callback)
 
-        # --- MODIFIED: ModelCheckpoint saves best val_recall ---
+        # ModelCheckpoint saves the best model based on validation recall
         model_checkpoint_callback = ModelCheckpoint(
-            monitor="val_recall",  # Changed from "val_loss"
+            monitor="val_recall",
             save_top_k=1,
-            mode="max",  # Changed from "min"
+            mode="max",
             dirpath=self.logger.log_dir,
-            filename="best_model-{epoch:02d}-{val_recall:.4f}",  # Updated filename to show recall
+            filename="best_model-{epoch:02d}-{val_recall:.4f}",
         )
         callbacks.append(model_checkpoint_callback)
         script_logger.info("Initializing pl.Trainer...")
         trainer = pl.Trainer(
             max_epochs=self.epochs,
-            logger=self.logger,  # This is self.logger (CSVLogger), which is correct
+            logger=self.logger,
             callbacks=callbacks,
             enable_progress_bar=True,
             accelerator="gpu",
@@ -321,20 +377,42 @@ class ImprovedPyTorchSklearnWrapper:
             precision="16-mixed",
         )
 
-        # CORRECTED: Use script_logger
         script_logger.info("Trainer.fit() starting.")
         trainer.fit(self.model, train_dataloaders=train_loader, val_dataloaders=val_loader)
         self.is_fitted_ = True
-        # CORRECTED: Use script_logger
         script_logger.info("Trainer.fit() finished.")
         return self, trainer
 
     def predict(self, indices, threshold=0.5):
+        """
+        Predict binary class labels for given indices.
+        
+        Args:
+            indices: Array of dataset indices to predict
+            threshold: Probability threshold for positive class (default: 0.5)
+            
+        Returns:
+            Array of predicted labels (-1.0 for negative, 1.0 for positive)
+        """
         probs = self.predict_proba(indices)[:, 1]
         return np.array([1.0 if p > threshold else -1.0 for p in probs])
 
 
 class FixedHoldoutPUCallback(Callback):
+    """
+    PyTorch Lightning callback for computing PU (Positive-Unlabeled) learning metrics.
+    
+    Tracks per-dataset losses, computes GMM-based AUROC, and generates validation
+    probability distributions. Supports distributed training with proper data gathering.
+    
+    Args:
+        wrapper: ImprovedPyTorchSklearnWrapper instance
+        train_indices: Training dataset indices
+        val_indices: Validation dataset indices
+        train_dataset: Training dataset
+        val_dataset: Validation dataset
+    """
+    
     def __init__(self, wrapper, train_indices, val_indices, train_dataset, val_dataset):
         super().__init__()
         self.wrapper = wrapper
@@ -345,7 +423,6 @@ class FixedHoldoutPUCallback(Callback):
         self.training_step_outputs = []
         self.batch_stats = []
 
-        # NEW: Add training batch end callback
 
     # def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
     #     """Collect training batch outputs for per-dataset loss calculation."""
@@ -404,7 +481,7 @@ class FixedHoldoutPUCallback(Callback):
     def on_train_epoch_end(self, trainer, pl_module):
         """Calculate and log per-dataset training loss."""
         script_logger.info(
-            f"[CALLBACK] Training epoch end. "
+            f"Training epoch end. "
             f"trainer.global_rank: {getattr(trainer, 'global_rank', 'N/A')}"
         )
 
@@ -482,16 +559,16 @@ class FixedHoldoutPUCallback(Callback):
                     script_logger.info(f"Sampler distribution histogram saved to {hist_path}")
 
                 except Exception as e:
-                    script_logger.error(f"[CALLBACK] Error calculating sampler distribution: {e}")
+                    script_logger.error(f"Error calculating sampler distribution: {e}")
                     import traceback
 
                     script_logger.error(traceback.format_exc())
             else:
-                script_logger.warning("[CALLBACK] No batch sampler stats collected.")
+                script_logger.warning("No batch sampler stats collected.")
 
         if not self.training_step_outputs:
             script_logger.info(
-                "[CALLBACK] No training outputs collected. Skipping per-dataset training loss."
+                "No training outputs collected. Skipping per-dataset training loss."
             )
             self.training_step_outputs.clear()
             return
@@ -519,11 +596,11 @@ class FixedHoldoutPUCallback(Callback):
         self.training_step_outputs.clear()
 
         if trainer.global_rank != 0:
-            script_logger.info("[CALLBACK] Not rank 0. Skipping training metric calculation.")
+            script_logger.info("Not rank 0. Skipping training metric calculation.")
             return
 
-        # === From this point on, we are only on the main process (rank 0) ===
-        script_logger.info("[CALLBACK] Rank 0 processing gathered training results.")
+        # From this point on, we are only on the main process (rank 0)
+        script_logger.info("Rank 0 processing gathered training results.")
 
         final_per_sample_loss = torch.cat([g for g in gathered_per_sample_loss]).cpu().numpy()
 
@@ -536,10 +613,10 @@ class FixedHoldoutPUCallback(Callback):
                 script_logger.warning(f"Unexpected type in gathered_dataset_ids: {type(sublist)}")
 
         script_logger.info(
-            f"[CALLBACK] Total training samples collected: {len(final_per_sample_loss)}"
+            f"Total training samples collected: {len(final_per_sample_loss)}"
         )
         script_logger.info(
-            f"[CALLBACK] Total training dataset_ids collected: {len(final_dataset_ids)}"
+            f"Total training dataset_ids collected: {len(final_dataset_ids)}"
         )
 
         # Calculate per-dataset training loss
@@ -660,7 +737,7 @@ class FixedHoldoutPUCallback(Callback):
         gathered_labels = pl_module.all_gather(all_labels)
         gathered_per_sample_loss = pl_module.all_gather(all_per_sample_loss)
 
-        # FIX: Use torch.distributed for gathering lists of strings
+        # Use torch.distributed for gathering lists of strings (not supported by all_gather)
         if trainer.world_size > 1:
             import torch.distributed as dist
 
@@ -675,7 +752,7 @@ class FixedHoldoutPUCallback(Callback):
             script_logger.info("[CALLBACK] Not rank 0. Skipping metric calculation.")
             return
 
-        # === From this point on, we are only on the main process (rank 0) ===
+        
         script_logger.info("[CALLBACK] Rank 0 processing gathered results.")
 
         final_logits = torch.cat([g for g in gathered_logits]).cpu()
@@ -763,7 +840,7 @@ class FixedHoldoutPUCallback(Callback):
 
             if len(indices) == len(val_probs_s1):
                 df_data = {
-                    "index": indices,  # ← Changed from 'absolute_index'
+                    "index": indices, 
                     "probability": val_probs_s1,
                     "true_labels": val_true_labels,
                 }
@@ -783,7 +860,7 @@ class FixedHoldoutPUCallback(Callback):
                 )
             else:
                 script_logger.error(
-                    f"❌ FATAL WARNING: Length mismatch! Indices: {len(indices)}, Probs: {len(val_probs_s1)}"
+                    f"Length mismatch: Indices: {len(indices)}, Probs: {len(val_probs_s1)}"
                 )
 
         # --- PU Metric Calculation ---
@@ -807,7 +884,7 @@ class FixedHoldoutPUCallback(Callback):
         if trainer.logger is not None:
             trainer.logger.log_metrics(metrics, step=trainer.current_epoch)
 
-        script_logger.info(f"\nEpoch {trainer.current_epoch} PU Metrics (v2 script):")
+        script_logger.info(f"\nEpoch {trainer.current_epoch} PU Metrics:")
         for name, value in metrics.items():
             script_logger.info(f"  {name}: {value:.4f}")
 
@@ -815,7 +892,7 @@ class FixedHoldoutPUCallback(Callback):
 def plot_probability_distribution(probabilities, gmm, epoch, log_dir):
     """
     Plot the probability score distribution with fitted GMM components.
-    Fixed version with proper memory cleanup.
+   
     """
     try:
         # ... (plotting logic) ...
@@ -824,10 +901,8 @@ def plot_probability_distribution(probabilities, gmm, epoch, log_dir):
             dpi=300,
             bbox_inches="tight",
         )
-        # CORRECTED: Use script_logger
         script_logger.info(f"Plot saved for epoch {epoch}")
     except Exception as e:
-        # CORRECTED: Use script_logger
         script_logger.error(f"Error creating plot for epoch {epoch}: {e}")
     finally:
         plt.close("all")
@@ -837,7 +912,6 @@ def plot_probability_distribution(probabilities, gmm, epoch, log_dir):
 
 
 def calculate_pu_metrics(probabilities, true_labels, labeled_pos_indices, epoch=None, log_dir=None):
-    # CORRECTED: Use script_logger
     script_logger.info("\n--- calculate_pu_metrics (v2 - Theoretical GMM AUROC) --- DEBUG LOGS ---")
     script_logger.info(f"Input probabilities (first 10): {probabilities[:10]}")
     script_logger.info(f"Input true_labels (first 10): {true_labels[:10]}")
@@ -871,10 +945,10 @@ def calculate_pu_metrics(probabilities, true_labels, labeled_pos_indices, epoch=
     auroc_gmm_val = 0.5
     fitted_gmm = None
 
-    script_logger.info("\n-- GMM AUROC Calculation (Theoretical) --")
+    script_logger.info("Computing GMM-based AUROC (theoretical)")
     if len(probabilities) < 2:
         script_logger.warning(
-            "Warning (v2 script): Not enough samples for GMM fitting (<2). Returning default AUROC GMM."
+            "Not enough samples for GMM fitting (<2). Returning default AUROC GMM."
         )
     else:
         X = probabilities.reshape(-1, 1)
@@ -929,13 +1003,13 @@ def calculate_pu_metrics(probabilities, true_labels, labeled_pos_indices, epoch=
                     plot_probability_distribution(probabilities, fitted_gmm, epoch, log_dir)
         except Exception as e:
             script_logger.error(
-                f"Error during Theoretical GMM AUROC (v2 script): {e}. Defaulting to 0.5."
+                f"Error during Theoretical GMM AUROC calculation: {e}. Defaulting to 0.5."
             )
             auroc_gmm_val = 0.5
 
-    script_logger.info("\n-- Percentile Rank & AUPRC Calculation (v2 script) --")
+    script_logger.info("Computing percentile rank and AUPRC")
     if len(labeled_pos_indices) == 0:
-        script_logger.warning("Warning (v2 script): No valid labeled positive for AUPRC.")
+        script_logger.warning("No valid labeled positive samples for AUPRC calculation.")
     else:
         # ... (AUPRC calculation logic) ...
         # This part was missing from your provided code, assuming it's correct
@@ -958,24 +1032,27 @@ def calculate_pu_metrics(probabilities, true_labels, labeled_pos_indices, epoch=
         # ... end AUPRC calculation
         script_logger.info(f"Calculated AUPRC: {auprc_val:.4f}")
 
-    script_logger.info("--- End calculate_pu_metrics (v2) DEBUG LOGS ---")
     return {"auroc_gmm": float(auroc_gmm_val), "val_area_under_percentile_ranks": float(auprc_val)}
 
 
 def main(args):
-    # --- New Logging ---
-    # Logger is already set up at the top of the file
+    """
+    Main training function.
+    
+    Sets up distributed training, initializes datasets, model, and trainer,
+    then runs the training loop with PU learning metrics tracking.
+    
+    Args:
+        args: ArgumentParser namespace with training configuration
+    """
     mp.set_start_method("spawn")
     rank = os.environ.get("LOCAL_RANK", os.environ.get("SLURM_PROCID", "0"))
-    # CORRECTED: Use script_logger
     script_logger.info(f"--- Main function started ---")
     script_logger.info(f"  SLURM_PROCID: {os.environ.get('SLURM_PROCID')}")
     script_logger.info(f"  LOCAL_RANK: {os.environ.get('LOCAL_RANK')}")
     script_logger.info(f"  Global RANK (used for logging): {rank}")
-    # --- End New Logging ---
 
     if torch.cuda.is_available():
-        # CORRECTED: Use script_logger
         script_logger.info(f"Available GPUs: {torch.cuda.device_count()}")
         for i in range(torch.cuda.device_count()):
             script_logger.info(f"GPU {i}: {torch.cuda.get_device_name(i)}")
@@ -984,7 +1061,6 @@ def main(args):
     log_dir = os.path.join(args.log_dir, experiment_name)
     os.makedirs(log_dir, exist_ok=True)
 
-    # CORRECTED: Use script_logger
     script_logger.info(f"CSVLogger initialized. Log dir: {log_dir}")
     csv_logger = CSVLogger(
         save_dir=args.log_dir,
@@ -996,22 +1072,18 @@ def main(args):
     TRAIN_LANCE_PATH = os.path.join(args.lance_uri, "train_data")
     VAL_LANCE_PATH = os.path.join(args.lance_uri_val, "validation_data")
 
-    # CORRECTED: Use script_logger
     script_logger.info(f"Loading TRAINING data from Lance store: {TRAIN_LANCE_PATH}")
     train_dataset = LanceIndexDataset(TRAIN_LANCE_PATH, rank=rank)
     script_logger.info(f"Length of training dataset: {len(train_dataset)}")
 
     script_logger.info(f"Loading VALIDATION data from Lance store: {VAL_LANCE_PATH}")
-    # Use the new LanceIndexDataset
     val_dataset = LanceIndexDataset(VAL_LANCE_PATH, rank=rank)
     script_logger.info(f"Length of validation dataset: {len(val_dataset)}")
-
-    # combined_dataset = ConcatDataset([train_dataset, val_dataset])
 
     train_indices = np.arange(len(train_dataset))
     val_indices = np.arange(len(val_dataset))
 
-    script_logger.info("Initializing SimpleSpectraTransformer model...")  # New log
+    script_logger.info("Initializing SimpleSpectraTransformer model...")
     model = SimpleSpectraTransformer(
         d_model=args.d_model,
         n_layers=args.n_layers,
@@ -1037,7 +1109,7 @@ def main(args):
         epochs=args.epochs,
         num_workers=args.num_workers,
         instrument_embedding_dim=args.instrument_embedding_dim,
-        logger=csv_logger,  # This is the CSVLogger, which is correct
+        logger=csv_logger,
     )
 
     try:
@@ -1053,7 +1125,7 @@ def main(args):
             dropout=args.dropout,
             lr=args.lr,
             instrument_embedding_dim=args.instrument_embedding_dim,
-            linear_lr=args.linear_lr,  # <-- Use this
+            linear_lr=args.linear_lr,
             encoder_lr=args.encoder_lr,
             weight_decay=args.weight_decay,
             prior_pos=args.prior_pos,
@@ -1064,22 +1136,15 @@ def main(args):
             **wrapper_args, model=model_cpu, force_cpu=True
         )
 
-    script_logger.info("Initializing FixedHoldoutPUCallback...")  # New log
-    # pu_callback = FixedHoldoutPUCallback(
-    #     wrapper=pytorch_model, train_indices=train_indices,
-    #     val_indices=val_indices, train_dataset=train_dataset, val_dataset=val_dataset
-    # )
-
     script_logger.info("Calling Wrapper.fit() to start training...")
     pytorch_model.fit(
         train_indices=train_indices,
         val_indices=val_indices,
-        # Pass the paths to the collator
         train_lance_path=TRAIN_LANCE_PATH,
         val_lance_path=VAL_LANCE_PATH,
     )
 
-    script_logger.info("\nTraining finished.")  # Use logger
+    script_logger.info("\nTraining finished.")
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     model_save_path = os.path.join(log_dir, f"pu_model_v2_{timestamp}.pt")
 
@@ -1088,9 +1153,9 @@ def main(args):
         torch.save(pytorch_model.model.state_dict(), model_save_path)
         script_logger.info(f"\nModel saved to {model_save_path}")
 
-        summary_path = os.path.join(log_dir, f"experiment_summary_v2_{timestamp}.txt")
+        summary_path = os.path.join(log_dir, f"experiment_summary_{timestamp}.txt")
         with open(summary_path, "w") as f:
-            f.write("=== Experiment Summary (v2 GMM AUROC, Train/Val Only) ===\n\n")
+            f.write("=== Experiment Summary (GMM AUROC, Train/Val Only) ===\n\n")
             f.write("Hyperparameters:\n")
             for param, value in vars(args).items():
                 f.write(f"{param}: {value}\n")

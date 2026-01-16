@@ -61,7 +61,6 @@ def analyze_lance_stats_ohe_logic(dataset_path, polarity):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--path", type=str, required=True, help="Path to the .lance directory")
-    # Instrument argument removed as per your request
     parser.add_argument("--polarity", type=int, choices=[0, 1], required=True, help="0 for Neg, 1 for Pos")
 
     args = parser.parse_args()

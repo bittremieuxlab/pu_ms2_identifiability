@@ -6,22 +6,20 @@ This directory contains pre-trained model checkpoints for MS2 quality prediction
 
 ### 1. BCE Pre-trained Models (Polarity-Specific)
 
-These models were trained with Binary Cross-Entropy loss on labeled data only, separated by ionization mode:
+These models were trained with Binary Cross-Entropy loss separated by ionization mode:
 
 **Positive Ionization Mode**:
 - **File**: `best_model_bce_positive.ckpt`
-- **Zenodo DOI**: [10.5281/zenodo.XXXXXX] *(LINK TO BE ADDED)*
-- **Size**: ~XX MB
+- **Zenodo DOI**: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
 - **Training**: Trained on positive mode spectra only
-- **Validation Recall**: ~0.XX
+- **Validation Recall**: ~0.5996
 - **Use case**: Prior estimation, polarity-specific predictions
 
 **Negative Ionization Mode**:
 - **File**: `best_model_bce_negative.ckpt`
-- **Zenodo DOI**: [10.5281/zenodo.XXXXXX] *(LINK TO BE ADDED)*
-- **Size**: ~XX MB
+- **Zenodo DOI**: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
 - **Training**: Trained on negative mode spectra only
-- **Validation Recall**: ~0.XX
+- **Validation Recall**: ~0.4392
 - **Use case**: Prior estimation, polarity-specific predictions
 
 ### 2. nnPU Model (Final Model)
@@ -30,11 +28,10 @@ This is the final model trained with non-negative Positive-Unlabeled (nnPU) loss
 
 **Combined Model**:
 - **File**: `best_model_nnpu.ckpt`
-- **Zenodo DOI**: [10.5281/zenodo.XXXXXX] *(LINK TO BE ADDED)*
-- **Size**: ~XX MB
-- **Training**: Both polarities, nnPU loss with π_pos=0.454, π_neg=0.285
+- **Zenodo DOI**: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
+- **Training**: Both polarities, nnPU loss with π_pos=0.45, π_neg=0.29
 - **Test Set 3 Recall**: 0.8986 (at threshold 0.767)
-- **Use case**: Final quality predictions for production use
+- **Use case**: Final quality predictions 
 
 ## How to Download
 
@@ -44,27 +41,19 @@ This is the final model trained with non-negative Positive-Unlabeled (nnPU) loss
 cd checkpoints/
 
 # Download BCE models
-wget https://zenodo.org/record/XXXXXX/files/best_model_bce_positive.ckpt
-wget https://zenodo.org/record/XXXXXX/files/best_model_bce_negative.ckpt
+wget https://zenodo.org/record/18266932/files/best_model_bce_positive.ckpt
+wget https://zenodo.org/record/18266932/files/best_model_bce_negative.ckpt
 
 # Download nnPU model
-wget https://zenodo.org/record/XXXXXX/files/best_model_nnpu.ckpt
+wget https://zenodo.org/record/18266932/files/best_model_nnpu.ckpt
 ```
 
 ### Option 2: Download from Zenodo Web Interface
 
-1. Visit the Zenodo record: [https://zenodo.org/record/XXXXXX](https://zenodo.org/record/XXXXXX)
+1. Visit the Zenodo record: [https://zenodo.org/record/18266932](https://zenodo.org/record/18266932)
 2. Download the checkpoint files
 3. Place them in this directory
 
-### Option 3: Using Zenodo Python API
-
-```bash
-pip install zenodo-get
-
-# Download entire deposit
-zenodo_get 10.5281/zenodo.XXXXXX -o checkpoints/
-```
 
 ## File Structure
 

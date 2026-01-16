@@ -27,17 +27,13 @@ module load mono
 #   - Place at: /path/to/your/working/directory/tools/ThermoRawFileParser/ThermoRawFileParser.exe
 #
 # ScanHeadsman: https://bitbucket.org/caetera/scanheadsman/src/master/
-#   - See link for download instructions
 #   - Place at: /path/to/your/working/directory/tools/ScanHeadsman/ScanHeadsman.exe
 
 SCANHEADSMAN="${SCANHEADSMAN:-/path/to/your/working/directory/tools/ScanHeadsman/ScanHeadsman.exe}"
 THERMORAWFILEPARSER="${THERMORAWFILEPARSER:-/path/to/your/working/directory/tools/ThermoRawFileParser/ThermoRawFileParser.exe}"
 
-# -----------------------
-# Argument: parent folder of all MSV directories
-#   - optional 1st CLI arg; else env MSV_PARENT; else default
-# -----------------------
-MSV_PARENT_DEFAULT="/path/to/your/working/directory/new_data"
+
+MSV_PARENT_DEFAULT="/path/to/your/working/directory/data"
 SCRIPT_DIR="/path/to/your/working/directory/scripts/data_preprocessing"
 MSV_PARENT="${1:-${MSV_PARENT:-$MSV_PARENT_DEFAULT}}"
 

@@ -7,14 +7,13 @@ import torch
 import lance
 import pandas as pd
 import lightning.pytorch as pl
-from torch.utils.data import DataLoader, Dataset, Subset
+from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import multiprocessing as mp
 
 # Ensure parent directory is in path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-# --- Critical Model Import ---
 try:
     from src.transformers.model_nn_pu_loss_detach_diff_polarity import SimpleSpectraTransformer
 except ImportError:
@@ -24,7 +23,6 @@ except ImportError:
     )
     sys.exit(1)
 
-# --- Logging Setup (Keep unchanged) ---
 RANK = os.environ.get("LOCAL_RANK", os.environ.get("SLURM_PROCID", "0"))
 logging.basicConfig(
     level=logging.INFO,
@@ -34,11 +32,17 @@ logging.basicConfig(
 script_logger = logging.getLogger(__name__)
 
 
-# --- End Logging Setup ---
-
-
 class LanceIndexDataset(Dataset):
-    """(Keep unchanged)"""
+    """
+    Dataset that returns integer indices for samples in a Lance dataset.
+
+    This lightweight dataset only stores the path and count, allowing efficient
+    parallel data loading where the actual data fetching happens in the collator.
+
+    Args:
+        lance_dataset_path: Path to the Lance dataset directory
+        rank: Process rank for logging purposes
+    """
 
     def __init__(self, lance_dataset_path: str, rank: str = "0"):
         super().__init__()
@@ -60,7 +64,16 @@ class LanceIndexDataset(Dataset):
 
 
 class LanceBatchCollator:
-    """(Keep unchanged)"""
+    """
+    Custom collator that fetches and batches data from Lance dataset.
+
+    Opens the Lance dataset handle on first call and reuses it for subsequent batches.
+    Handles padding of variable-length spectra to create uniform batches.
+
+    Args:
+        lance_dataset_path: Path to the Lance dataset directory
+        rank: Process rank for logging purposes
+    """
 
     def __init__(self, lance_dataset_path: str, rank: str = "0"):
         self.lance_dataset_path = lance_dataset_path
@@ -116,11 +129,26 @@ class LanceBatchCollator:
 
 def select_all_samples(args):
     """
-    Modified to run predictions on ALL samples and save index, probability, and label.
+    Run model predictions on all samples in the Lance dataset and save results.
+
+    This function:
+    1. Loads a trained model from checkpoint
+    2. Processes all samples in the dataset without filtering
+    3. Computes probability predictions for each sample
+    4. Optionally fetches metadata (mzml_filepath, scan_number)
+    5. Saves results to CSV with columns: original_index, probability, label
+
+    Args:
+        args: Namespace containing:
+            - checkpoint_path: Path to model checkpoint
+            - lance_path: Path to Lance dataset
+            - output_csv: Output CSV file path
+            - batch_size: Batch size for inference
+            - num_workers: Number of dataloader workers
+            - fetch_metadata: Whether to include mzml_filepath and scan_number
     """
     pl.seed_everything(1, workers=True)
 
-    # 1. Load Model (Keep unchanged)
     script_logger.info(f"Loading model from checkpoint: {args.checkpoint_path}")
     model = SimpleSpectraTransformer.load_from_checkpoint(args.checkpoint_path)
     model.eval()
@@ -133,15 +161,11 @@ def select_all_samples(args):
         device = torch.device("cpu")
     model.to(device)
 
-    # 2. Load Lance Dataset & Prepare ALL Indices
     script_logger.info(f"Opening Lance dataset at: {args.lance_path}")
-    # Note: Using args.lance_path for clarity instead of old args.train_lance_path
-
     base_index_dataset = LanceIndexDataset(args.lance_path, rank=RANK)
     total_rows = len(base_index_dataset)
-    all_indices = np.arange(total_rows)  # Get indices for ALL samples
+    all_indices = np.arange(total_rows)
 
-    # We need all labels for the final output, fetch them once.
     script_logger.info("Fetching all labels...")
     ds = lance.dataset(args.lance_path)
     labels_table = ds.to_table(columns=["label"])
@@ -149,12 +173,9 @@ def select_all_samples(args):
 
     script_logger.info(f"Total samples to process: {total_rows}")
 
-    # 3. Create Dataset/Loader
-    # Use the base_index_dataset directly (no need for Subset)
     collator = LanceBatchCollator(args.lance_path, rank=RANK)
-
     dataloader = DataLoader(
-        base_index_dataset,  # Process all indices
+        base_index_dataset,
         batch_size=args.batch_size,
         collate_fn=collator,
         num_workers=args.num_workers,
@@ -162,7 +183,6 @@ def select_all_samples(args):
         pin_memory=True,
     )
 
-    # 4. Run predictions on ALL samples
     probabilities = []
     script_logger.info("Running predictions on all samples...")
     with torch.no_grad():
@@ -174,67 +194,59 @@ def select_all_samples(args):
             probs = torch.sigmoid(logits)
             probabilities.extend(probs.cpu().numpy())
 
-    # 5. Collate Results (Index, Probability, Label)
-    # The order of predictions matches the order of 'all_indices' (0 to N-1)
     probabilities = [p[0] for p in probabilities]
 
     results_df = pd.DataFrame(
         {
             "original_index": all_indices,
             "probability": probabilities,
-            "label": all_labels,  # Already fetched and aligned with indices 0 to N-1
+            "label": all_labels,
         }
     )
 
-    # Optional: Sort by probability for quick viewing of lowest/highest prob samples
     results_df = results_df.sort_values("probability", ascending=True)
-
-    # 6. Fetch Metadata (Simplified/Removed unless needed for other purpose)
-    # The prompt only asked for index, probability, and label.
-    # If you still want the mzml_filepath/scan_number, you can adapt the
-    # fetching logic from the original script here, but the requested info is done.
 
     if args.fetch_metadata:
         script_logger.info("Fetching optional metadata (filepath/scan_number)...")
-        # Since we sorted, the order is no longer 0 to N-1.
-        # We must re-sort by index to efficiently fetch metadata.
         fetch_df = results_df.sort_values("original_index")
 
         sorted_indices = fetch_df["original_index"].values
         metadata_columns = ["mzml_filepath", "ms2_scan_number"]
 
-        # Batch the fetching
         batch_size = 100000
         metadata_chunks = []
         for i in tqdm(range(0, len(sorted_indices), batch_size), desc="Fetching Metadata"):
-            batch_idx = sorted_indices[i : i + batch_size]
+            batch_idx = sorted_indices[i: i + batch_size]
             arrow_tbl = ds.take(batch_idx, columns=metadata_columns)
             chunk_df = arrow_tbl.to_pandas()
             metadata_chunks.append(chunk_df)
 
         metadata_df = pd.concat(metadata_chunks, ignore_index=True)
 
-        # Add metadata back to the main DataFrame, which is sorted by original_index
         fetch_df["mzml_filepath"] = metadata_df["mzml_filepath"].values
         fetch_df["scan_number"] = metadata_df["ms2_scan_number"].values
 
-        # Re-sort for final output by probability
         results_df = fetch_df.sort_values("probability", ascending=True)
 
-    # 7. Save to CSV
     script_logger.info(f"Saving {len(results_df)} results to {args.output_csv}...")
+    output_dir = os.path.dirname(args.output_csv)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     results_df.to_csv(args.output_csv, index=False)
 
     script_logger.info(f"Done. Results saved to {args.output_csv}")
 
 
-# --- Main function update for arguments and calling the new function ---
-
-
 def main():
+    """
+    Main entry point for the prediction script.
+
+    Parses command line arguments and runs predictions on the entire dataset.
+    Results include sample index, predicted probability, and ground truth label.
+    """
     mp.set_start_method("spawn", force=True)
     parser = argparse.ArgumentParser(
-        description="Predict on test dataset and save results."
+        description="Run model predictions on all samples in a Lance dataset and save results to CSV."
     )
     parser.add_argument(
         "--checkpoint_path",
@@ -242,31 +254,37 @@ def main():
         required=True,
         help="Path to the trained .ckpt model checkpoint",
     )
-    # Changed argument name from train_lance_path to the more general lance_path
     parser.add_argument(
         "--lance_path",
         type=str,
         required=True,
-        help="Path to the Lance dataset directory (e.g., /path/to/data)",
+        help="Path to the Lance dataset directory",
     )
     parser.add_argument(
         "--output_csv",
         type=str,
         required=True,
-        help="Path to save the output .csv file of selected samples",
+        help="Path to save the output CSV file (parent directories will be created if needed)",
     )
-
-    parser.add_argument("--batch_size", type=int, default=2048, help="Batch size for prediction")
-    parser.add_argument("--num_workers", type=int, default=8, help="Number of DataLoader workers")
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=2048,
+        help="Batch size for prediction (default: 2048)"
+    )
+    parser.add_argument(
+        "--num_workers",
+        type=int,
+        default=8,
+        help="Number of DataLoader workers (default: 8)"
+    )
     parser.add_argument(
         "--fetch_metadata",
         action="store_true",
-        help="Include this flag to also fetch and save mzml_filepath and scan_number.",
+        help="Include mzml_filepath and scan_number columns in output",
     )
 
     args = parser.parse_args()
-
-    # Call the new function
     select_all_samples(args)
 
 

@@ -46,6 +46,9 @@ def main():
     )
     args = parser.parse_args()
 
+    os.makedirs(args.base_dir, exist_ok=True)
+
+
     # Read input CSV
     df_new = pd.read_csv(args.new_csv, sep=";")
 

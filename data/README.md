@@ -1,6 +1,6 @@
 # Data Directory
 
-This directory contains all data files needed for training, validation, and testing. Most data files are **not included** in this repository due to size and should be downloaded from Zenodo.
+This directory should all data files needed for training, validation, and testing. Most data files are **not included** in this repository due to size and should be downloaded from Zenodo.
 
 ## Directory Structure
 
@@ -18,79 +18,49 @@ data/
 │   ├── cleaned_spectra.mgf             # [External] Download from GNPS2
 │   ├── spectral_db_positive.mgf        # [User-created] Split from cleaned_spectra.mgf
 │   └── spectral_db_negative.mgf        # [User-created] Split from cleaned_spectra.mgf        
-├── file_paths/                         # File path lists (user creates)
+├── file_paths/                         # [User-created] File path lists 
 │   ├── file_paths_train.txt            # User creates
 │   └── file_paths_val.txt              # User creates
-├── lance_datasets/                     # [External] Training & validation (download from Zenodo)
+├── lance_dataset_train_validation/     # [External] Training & validation (download from Zenodo)
 │   ├── train_data/                     # Training table
 │   └── validation_data/                # Validation table
 ├── lance_data_test_set_1/              # [External] Test Set 1 (download from Zenodo)
 ├── lance_data_test_set_2/              # [External] Test Set 2 (download from Zenodo)
 ├── lance_data_test_set_3/              # [External] Test Set 3 (download from Zenodo)
-├── new_data/                           # Massive datasets with .raw files (optional, if processing from scratch)
+├── new_data/                           # This will be created for Massive datasets with .raw files (optional, if processing new data)
 
 ```
 
-## 📥 Downloading Pre-processed Data from Zenodo
+## Downloading Pre-processed Data from Zenodo
 
-### Option 1: Quick Start (Recommended)
+**Data and model weights repository:** [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
 
-Download the pre-processed Lance datasets and pre-trained models:
+### Quick Start
+Run the following commands **from inside this directory** (`data/`) to download and extract all required files.
+
 
 ```bash
-cd data/
+# --- 1. Download & Extract Datasets (Current Directory) ---
 
-# Download training and validation data (ONE file with TWO tables)
-wget https://zenodo.org/record/XXXXXX/files/train_validation_lance.tar.gz
-tar -xzf train_validation_lance.tar.gz
-# This creates: lance_datasets/ with train_data/ and validation_data/ subdirectories
+# Train & Validation Data
+wget https://zenodo.org/record/18266932/files/lance_data_train_validation.tar.gz
+tar -xzf lance_data_train_validation.tar.gz
 
-# Download all test sets
-wget https://zenodo.org/record/YYYYYY/files/test_set_1_lance.tar.gz
-wget https://zenodo.org/record/YYYYYY/files/test_set_2_lance.tar.gz
-wget https://zenodo.org/record/YYYYYY/files/test_set_3_lance.tar.gz
+# Test Sets
+wget https://zenodo.org/record/18266932/files/lance_data_test_set_1.tar.gz
+wget https://zenodo.org/record/18266932/files/lance_data_test_set_2.tar.gz
+wget https://zenodo.org/record/18266932/files/lance_data_test_set_3.tar.gz
 
-tar -xzf test_set_1_lance.tar.gz
-tar -xzf test_set_2_lance.tar.gz
-tar -xzf test_set_3_lance.tar.gz
+tar -xzf lance_data_test_set_1.tar.gz
+tar -xzf lance_data_test_set_2.tar.gz
+tar -xzf lance_data_test_set_3.tar.gz
 
-# Download pre-trained models (see ../checkpoints/README.md)
-cd ../checkpoints/
-wget https://zenodo.org/record/XXXXXX/files/best_model_nnpu.ckpt
-```
+# Cleanup data zips
+rm *_lance.tar.gz
 
-### Option 2: Individual Downloads
 
-**Training and Validation Data**:
-- **Zenodo DOI**: [10.5281/zenodo.XXXXXX](https://zenodo.org/record/XXXXXX) (to do: LINK TO BE ADDED)
-- **File**: `train_validation_lance.tar.gz`
-- **Size**: ~XX GB
-- **Structure**: ONE Lance dataset with TWO tables
-  - `train_data/` - Training spectra
-  - `validation_data/` - Validation spectra
-- **Extract to**: `data/lance_datasets/`
-- **Usage**: Both training scripts use the same `--lance_uri data/lance_datasets` path
 
-**Test Set 1** (Prior Estimation):
-- **Zenodo DOI**: [10.5281/zenodo.YYYYYY](https://zenodo.org/record/YYYYYY) (to do: LINK TO BE ADDED)
-- **File**: `test_set_1_lance.tar.gz`
-- **Size**: ~XX GB
-- **Purpose**: Estimating class priors (c_pos, c_neg)
-- **Extract to**: `data/lance_data_test_set_1/`
 
-**Test Set 2** (Threshold Selection):
-- **Zenodo DOI**: [10.5281/zenodo.YYYYYY](https://zenodo.org/record/YYYYYY) (to do: LINK TO BE ADDED)
-- **File**: `test_set_2_lance.tar.gz`
-- **Size**: ~XX GB
-- **Purpose**: Selecting decision threshold
-- **Extract to**: `data/lance_data_test_set_2/`
-
-**Test Set 3** (Final Evaluation):
-- **Zenodo DOI**: [10.5281/zenodo.YYYYYY](https://zenodo.org/record/YYYYYY) (to do: LINK TO BE ADDED)
-- **File**: `test_set_3_lance.tar.gz`
-- **Size**: ~XX GB
-- **Purpose**: Final model evaluation (reported in paper)
-- **Extract to**: `data/lance_data_test_set_3/`
 
 ---
 
@@ -147,9 +117,9 @@ sbatch slurm_scripts/data_download/msv_download.sh
 #   --new_csv data/metadata/val_datasets.csv
 sbatch slurm_scripts/data_download/msv_download.sh
 
-# Download test set 1
+# Download test set 3
 # Edit msv_download.sh to use:
-#   --new_csv data/metadata/test_1_metadata.csv
+#   --new_csv data/metadata/test_3_metadata.csv
 sbatch slurm_scripts/data_download/msv_download.sh
 ```
 
@@ -160,7 +130,7 @@ sbatch slurm_scripts/data_download/msv_download.sh
 ### Step 2: Download GNPS Libraries
 
 Follow instructions in `data/libraries/README.md` to:
-1. Download GNPS library from [GNPS2](https://external.gnps2.org/gnpslibrary)
+1. Download GNPS library from [GNPS](https://external.gnps2.org/processed_gnps_data/matchms.mgf)
 2. Split into positive and negative mode using `scripts/data_preprocessing/split_library.py`
 
 ### Step 3: Process Raw Data
@@ -202,8 +172,7 @@ The `metadata/` directory contains CSV files with dataset information:
 **CSV Format**:
 These files are **semicolon-separated (`;`)** and contain:
 - `dataset_id` (required) - MassIVE accession (e.g., MSV000012345)
-- `instrument_type` - Instrument model
-- `n_spectra` - Number of spectra
+- `ms2` - Number of MS2 spectra
 - Other metadata fields
 
 **Important**: The download script `msv_download_datasets.py` requires:

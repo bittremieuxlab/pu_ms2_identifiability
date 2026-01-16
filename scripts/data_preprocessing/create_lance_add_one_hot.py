@@ -74,7 +74,6 @@ def get_instrument_settings_columns() -> List[str]:
     ]
 
 
-# --- MODIFIED FUNCTION 1: Extract Precursor from mzML ---
 def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict[str, Any]]:
     """Loads and preprocesses spectra from an mzML file, extracting precursor m/z for MS2."""
     scan_list = []

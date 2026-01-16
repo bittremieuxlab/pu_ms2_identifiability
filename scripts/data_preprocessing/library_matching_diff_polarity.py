@@ -58,7 +58,6 @@ def get_scan_number(spectrum, index):
                 numbers = re.findall(r"\d+", val)
                 if numbers:
                     return int(numbers[0])
-    # print(f"Warning: No scan number found for spectrum {index}, using index as scan number")
     return index
 
 
@@ -131,9 +130,6 @@ def spectral_library_matching(
         scans_id_map = {i: int(s.metadata["scans"]) for i, s in enumerate(chunk)}
         cosine = CosineGreedy(tolerance=msms_mz_tol)
 
-        # scores = calculate_scores(spectra_query, db_spectra, precursor_match)
-        # idx_row = scores.scores[:, :][0]
-        # idx_col = scores.scores[:, :][1]
 
         for x, y in zip(idx_row, idx_col):
             if x < y:

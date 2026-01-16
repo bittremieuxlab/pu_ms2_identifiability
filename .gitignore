@@ -43,11 +43,12 @@ wheels/
 *.hdf5
 *.parquet
 *.lance
-
+*.tar.gz
 # Lance datasets
 lance_dataset/
 *_data/
 *.lance/
+
 
 # Logs and outputs
 logs/
@@ -94,7 +95,7 @@ tools/ScanHeadsman/
 *.exe
 *.dll
 
-# Internal documentation ()
+
 PUBLICATION_CHECKLIST.md
 PERSONAL_INFO_REMOVED.md
 PATH_CLEANUP_SUMMARY.md

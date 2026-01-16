@@ -19,6 +19,10 @@ module purge
 
 module load miniconda/25.1.1
 
+source $(conda info --base)/etc/profile.d/conda.sh
+
+
+
 # Activate conda environment
 # NOTE: If using this script outside a cluster, ensure you have created the environment:
 #       conda env create -f environment.yml
@@ -44,7 +48,6 @@ mkdir -p logs
 mkdir -p results/lance_datasets
 
 # Verify required packages
-# Verify required packages
 echo "Checking required packages..."
 python -c "import lance; import pyarrow; import pyteomics; import spectrum_utils; print('✓ All packages available')" || {
     echo "ERROR: Missing required packages. Install with:"
@@ -60,14 +63,14 @@ echo "========================================"
 python scripts/data_preprocessing/create_lance_add_one_hot.py \
     --train_file_list data/file_paths/file_paths_train.txt \
     --val_file_list data/file_paths/file_paths_val.txt \
-    --lance_uri results/lance_datasets \
+    --lance_uri results/lance_data_train_validation \
     --train_table train_data \
     --val_table validation_data \
     --workers $SLURM_CPUS_PER_TASK \
     --cap_training_set 300000 \
     --cap_val_set 100000 \
-    --training_set_csv data/metadata/training_metadata.csv \
-    --val_set_csv data/metadata/validation_metadata.csv \
+    --training_set_csv data/metadata/train_datasets.csv \
+    --val_set_csv data/metadata/val_datasets.csv \
 
 
 EXIT_CODE=$?

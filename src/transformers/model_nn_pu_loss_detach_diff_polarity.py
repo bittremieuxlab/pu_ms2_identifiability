@@ -48,7 +48,6 @@ class NNPULoss(nn.Module):
 
         # Non-negative constraint
         if negative_risk < -self.beta:
-            # The "Chainer Trick" logic to keep gradients flowing while clipping value
             target_val = r_p_plus - self.beta
             gradient_signal = -self.gamma * negative_risk
             return gradient_signal + (target_val - gradient_signal).detach()
@@ -56,7 +55,7 @@ class NNPULoss(nn.Module):
             return r_p_plus + negative_risk
 
 
-# --- 2. Your Model (Unchanged) ---
+# --- 2. My Model 
 class MyModel(SpectrumTransformerEncoder):
     """Our custom model class."""
 
@@ -86,7 +85,7 @@ class MyModel(SpectrumTransformerEncoder):
             nn.init.normal_(module.weight, mean=0, std=1)
 
 
-# --- 3. The Lightning Module (Updated) ---
+# --- 3. The Lightning Module 
 class SimpleSpectraTransformer(pl.LightningModule):
     def __init__(
         self,
@@ -136,14 +135,10 @@ class SimpleSpectraTransformer(pl.LightningModule):
         # Output
         self.fc_output = nn.Linear(d_model, 1)
         self.relu = nn.ReLU()
-        # Note: Sigmoid is handled implicitly by loss, but used for metrics
 
-        # --- REPLACED: Use Custom PU Loss ---
         self.loss_fn = NNPULoss()
 
-        # --- METRICS ---
-        # We only keep Recall (Sensitivity) because we know P labels are real.
-        # Accuracy/Precision are misleading on PU validation sets.
+        
         self.train_accuracy = BinaryAccuracy()
         self.train_precision = BinaryPrecision()
         self.val_accuracy = BinaryAccuracy()

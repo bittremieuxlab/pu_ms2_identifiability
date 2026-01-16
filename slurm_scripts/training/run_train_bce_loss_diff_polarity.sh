@@ -23,6 +23,9 @@ module purge
 module load cuda/12.8
 module load miniconda/25.1.1
 
+# 2. Ask the system where conda is located and source it
+source $(conda info --base)/etc/profile.d/conda.sh
+
 # Activate conda environment
 # NOTE: If using this script outside a cluster, ensure you have created the environment:
 #       conda env create -f environment.yml
@@ -37,6 +40,7 @@ python -c "import lance; print('Lance version:', lance.__version__)"
 
 # Change to working directory
 cd /path/to/your/working/directory
+mkdir -p logs
 
 # -----------------------
 # Training Data (Lance Format)
@@ -44,17 +48,17 @@ cd /path/to/your/working/directory
 # You have two options to obtain the training and validation Lance dataset:
 #
 # OPTION 1: Download pre-processed Lance dataset from Zenodo (RECOMMENDED)
-#   Zenodo DOI: [10.5281/zenodo.XXXXXX] (to do: LINK TO BE ADDED)
-#   File: train_validation_lance.tar.gz
+#   Zenodo DOI: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
+#   File: lance_data_train_validation.tar.gz
 #   
-#   This archive contains ONE Lance dataset with TWO tables:
+#   This archive contains one Lance dataset with TWO tables:
 #     - train_data (training spectra)
 #     - validation_data (validation spectra)
 #   
 #   Download and extract:
 #     cd data/
-#     wget https://zenodo.org/record/XXXXXX/files/train_validation_lance.tar.gz
-#     tar -xzf train_validation_lance.tar.gz
+#     wget https://zenodo.org/record/18266932/files/lance_data_train_validation.tar.gz
+#     tar -xzf lance_data_train_validation.tar.gz
 #   
 #   See data/README.md for detailed download instructions
 #

@@ -37,7 +37,7 @@ class MyModel(SpectrumTransformerEncoder):
 
 
 class SimpleSpectraTransformer(pl.LightningModule):
-    """Simplified model using only SpectrumTransformerEncoder for MS1 spectra."""
+    """Model using SpectrumTransformerEncoder for MS1 spectra and linear layers for acquisition parameters."""
 
     def __init__(
         self,

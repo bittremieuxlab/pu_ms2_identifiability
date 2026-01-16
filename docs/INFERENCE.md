@@ -6,8 +6,7 @@ This guide explains how to use trained models to predict MS2 spectral quality.
 
 - **Trained nnPU model checkpoint** - Download from Zenodo (see `checkpoints/README.md`) or use your own trained model
 - **Lance dataset** - Test Set 3 for final evaluation (download from Zenodo, see `data/README.md`)
-- **GPU** - Recommended for faster inference (optional, can run on CPU)
-
+- **GPU** - The current implementation was tested using **2x Nvidia Tesla V100 (32 GB)**. The code was run on a cluster node equipped with Intel Xeon Gold 5218 CPUs and 384 GB of RAM.
 ## Running Inference
 
 Use the provided SLURM script to generate quality predictions for data in a Lance dataset (Test set 3):
@@ -52,11 +51,6 @@ The script generates a CSV file with predictions:
 
 ## Interpreting Results
 
-### Quality Scores
-
-The model outputs a **probability score (0-1)** for each spectrum:
-- **Higher scores** (closer to 1.0) = Higher predicted quality
-- **Lower scores** (closer to 0.0) = Lower predicted quality
 
 ### Decision Threshold
 
@@ -71,11 +65,11 @@ This threshold was determined using Test Set 2 (5th percentile of known positive
 
 On Test Set 3, the nnPU model achieves:
 
-| Metric | Value |
-|--------|-------|
+| Metric | Value           |
+|--------|-----------------|
 | **Recall** | 0.8986 (89.86%) |
-| **Threshold** | 0.767 |
-| **Test Set** | 7 datasets |
+| **Threshold** | 0.767           |
+| **Test Set** | 8 datasets      |
 
 **Note**:  We primarily evaluate recall on known positive samples, as true negatives are unavailable.
 

@@ -18,6 +18,9 @@
 module purge
 module load cuda/12.8
 module load miniconda/25.1.1
+# 2. Ask the system where conda is located and source it
+# This replaces your "source ~/miniconda3/..." line
+source $(conda info --base)/etc/profile.d/conda.sh
 
 # Activate conda environment
 # NOTE: If using this script outside a cluster, ensure you have created the environment:
@@ -43,7 +46,7 @@ cd /path/to/your/working/directory
 # Pre-trained Model Checkpoint
 # -----------------------
 # Download the pre-trained BCE model checkpoints from Zenodo:
-#   Zenodo DOI: [10.5281/zenodo.XXXXXX] (to do: LINK TO BE ADDED)
+#   Zenodo DOI: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
 #   Files: 
 #     - best_model_bce_positive.ckpt (for positive polarity, --polarity 1)
 #     - best_model_bce_negative.ckpt (for negative polarity, --polarity 0)
@@ -52,19 +55,18 @@ cd /path/to/your/working/directory
 #   /path/to/your/working/directory/checkpoints/best_model_bce_positive.ckpt
 #   /path/to/your/working/directory/checkpoints/best_model_bce_negative.ckpt
 #
-# Or specify your own trained model checkpoint paths below
-
+# 
 # -----------------------
 # Test Data (Lance Format)
 # -----------------------
 # Download the Test Set 1 Lance dataset from Zenodo:
-#   Zenodo DOI: [10.5281/zenodo.YYYYYY] (to do: LINK TO BE ADDED)
-#   File: test_set_1_lance.tar.gz
+#   Zenodo DOI: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
+#   File: lance_data_test_set_1.tar.gz
 #
 # Extract to:
 #   /path/to/your/working/directory/data/lance_data_test_set_1
 #
-# Or use your own Lance-formatted dataset
+# 
 
 echo "========================================"
 echo "Starting inference with polarity-specific model..."

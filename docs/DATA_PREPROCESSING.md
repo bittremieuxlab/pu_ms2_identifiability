@@ -35,12 +35,6 @@ sbatch slurm_scripts/data_preprocessing/run_build_lance.sh
 
 See `tools/README.md` for download and installation instructions.
 
-### Python Libraries
-
-- **matchms** - For spectral library matching
-- **lance** - For creating Lance datasets
-- **pyteomics** - For mzML file processing
-- **pandas** - For data manipulation
 
 
 ### Data Files
@@ -67,7 +61,7 @@ sbatch slurm_scripts/data_preprocessing/run_process_raw.sh
 **Configuration** (edit the script if needed):
 ```bash
 # Default input directory (where MSV folders are located)
-MSV_PARENT_DEFAULT="/path/to/your/working/directory/new_data"
+MSV_PARENT_DEFAULT="/path/to/your/working/directory/data"
 
 # Paths to external tools
 SCANHEADSMAN="/path/to/tools/ScanHeadsman/ScanHeadsman.exe"
@@ -114,7 +108,7 @@ sbatch slurm_scripts/data_preprocessing/library_matching.sh
 **Configuration** (edit the script if needed):
 ```bash
 python scripts/data_preprocessing/library_matching_diff_polarity.py \
-    --msv_folder /path/to/your/working/directory/new_data \
+    --msv_folder /path/to/your/working/directory/data \
     --reference_mgf_positive data/libraries/spectral_db_positive.mgf \
     --reference_mgf_negative data/libraries/spectral_db_negative.mgf \
     --output_tsv results/spectral_matching_results.tsv \
@@ -137,7 +131,7 @@ sbatch slurm_scripts/data_preprocessing/run_processing_pipeline.sh
 
 This script processes all MSV folders, organizes the data structure, and labels samples based on GNPS library matching: samples with matches are assigned Label=1, while unmatched samples are assigned Label=0. Finally, it prepares the files for Lance dataset creation. 
 
-### Step 3b: Create Lance Dataset
+### Step 3b: Create Lance Dataset for training the model
 
 ```bash
 sbatch slurm_scripts/data_preprocessing/run_build_lance.sh
@@ -153,7 +147,7 @@ This combines mzML spectra, instrument settings, and labels into an efficient La
 python scripts/data_preprocessing/create_lance_add_one_hot.py \
     --train_file_list data/file_paths/file_paths_train.txt \
     --val_file_list data/file_paths/file_paths_val.txt \
-    --lance_uri results/lance_datasets \
+    --lance_uri data/lance_data_train_validation \
     --train_table train_data \
     --val_table validation_data \
     --workers 16 \
@@ -169,11 +163,11 @@ python scripts/data_preprocessing/create_lance_add_one_hot.py \
 - `--lance_uri`: Output directory for Lance dataset
 - `--train_table` / `--val_table`: Table names within the Lance dataset
 - `--workers`: Number of parallel workers
-- `--cap_training_set` / `--cap_val_set`: Maximum spectra per split (optional)
+- `--cap_training_set` / `--cap_val_set`: Maximum spectra per split 
 
 **Creating File Lists (Required Before Running)**:
 
-The `--train_file_list` and `--val_file_list` text files must be created manually by the user. Each line should contain the path to an `.mzML` file and its corresponding `_annotated.csv` file, **comma-separated**.
+The `--train_file_list` and `--val_file_list` text files must be created manually by the user. Each line should contain the path to an `.mzML` file and its corresponding `_annotated.csv` file, **comma-separated**, where `_annotated.csv` file is created by `data_processing_pipeline.py`.
 
 **File Format**:
 ```
@@ -191,7 +185,8 @@ The `--train_file_list` and `--val_file_list` text files must be created manuall
 2. **Locate Processed Files**: After running `run_processing_pipeline.sh`, your processed data will be in `data/new_data/MSV*/` directories. Each dataset will contain:
    - `.mzML` files (spectral data)
    - `_annotated.csv` files (labels library matching and instrument setting columns)
-
+**Note**: Files in the `invalid/` folder should be ignored, as these `.mzML` files contain only MS1 data.
+   - 
 3. **Create File Lists**: For each dataset ID in your split, find all `.mzML` files and create a comma-separated pair with their corresponding `_annotated.csv` file.
 
 4. **Save to File**: Save the list to `data/file_paths/file_paths_train.txt` (for training) or `data/file_paths/file_paths_val.txt` (for validation).
@@ -200,20 +195,6 @@ The `--train_file_list` and `--val_file_list` text files must be created manuall
 
 **Note**: Ensure you only include dataset IDs that belong to the correct split (training or validation) based on  metadata CSV files.
 
-### Lance Dataset Schema
-
-Each row represents one MS2 scan with:
-
-| Column | Type | Shape | Description |
-|--------|------|-------|-------------|
-| `mz_array` | float32 | variable | MS1 m/z values |
-| `intensity_array` | float32 | variable | MS1 intensity values |
-| `precursor_mz` | float32 | scalar | MS2 precursor m/z |
-| `instrument_settings` | float32 | [22] | Normalized + one-hot encoded settings |
-| `label` | float32 | scalar | 1 (positive) or 0 (unlabeled) |
-| `mzml_filepath` | string | - | Source file path |
-| `ms2_scan_number` | int | scalar | Scan number in mzML |
-| `dataset_id` | string | - | MassIVE accession (optional) |
 
 ### Feature Encoding
 
@@ -237,7 +218,7 @@ Final `instrument_settings` vector concatenates:
 - Sample up to 300,000 MS2 scans per dataset
 - Random sampling to balance dataset contributions
 
-**Validation set** (9 datasets):
+**Validation set** (11 datasets):
 - Sample up to 100,000 MS2 scans per dataset
 
 **Test sets** (7, 5, 7 datasets):

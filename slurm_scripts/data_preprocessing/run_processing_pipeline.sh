@@ -16,9 +16,10 @@
 # -----------------------
 module purge
 module load miniconda/25.1.1
-
+# This replaces your "source ~/miniconda3/..." line
+source $(conda info --base)/etc/profile.d/conda.sh
 # Activate conda environment
-# NOTE: If using this script outside a cluster, ensure you have created the environment:
+# NOTE:  ensure you have created the environment:
 #       conda env create -f environment.yml
 conda activate instrument_setting
 
@@ -39,8 +40,8 @@ mkdir -p logs
 # -----------------------
 # Define arguments
 # -----------------------
-PARENT_DIR="/path/to/your/working/directory/new_data"
-OUTPUT_PARENT_DIR="/path/to/your/working/directory/new_data"
+PARENT_DIR="/path/to/your/working/directory/data"
+OUTPUT_PARENT_DIR="/path/to/your/working/directory/data"
 TSV_FILE="/path/to/your/working/directory/results/spectral_matching_results.tsv"
 LOG_DIR="logs/pipeline"
 

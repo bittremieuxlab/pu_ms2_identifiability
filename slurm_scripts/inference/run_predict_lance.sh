@@ -9,7 +9,7 @@
 #SBATCH --mem=200G
 
 #SBATCH --time=36:00:00
-#
+
 
 #SBATCH --mail-user=YOUR_EMAIL@example.com
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -18,10 +18,10 @@
 module purge
 module load cuda/12.8
 module load miniconda/25.1.1
-
+# 2. Ask the system where conda is located and source it
+source $(conda info --base)/etc/profile.d/conda.sh
 # Activate conda environment
-# NOTE: If using this script outside a cluster, ensure you have created the environment:
-#       conda env create -f environment.yml
+
 conda activate instrument_setting
 
 # Debug: confirm environment
@@ -43,7 +43,7 @@ cd /path/to/your/working/directory
 # Pre-trained Model Checkpoint
 # -----------------------
 # Download the pre-trained nnPU model checkpoint from Zenodo:
-#   Zenodo DOI: [10.5281/zenodo.XXXXXX] (to do: LINK TO BE ADDED)
+#   Zenodo DOI: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
 #   File: best_model_nnpu.ckpt
 #
 # Place the checkpoint at:
@@ -55,8 +55,8 @@ cd /path/to/your/working/directory
 # Test Data (Lance Format)
 # -----------------------
 # Download the Test Set 3 Lance dataset from Zenodo:
-#   Zenodo DOI: [10.5281/zenodo.YYYYYY] (to do: LINK TO BE ADDED)
-#   File: test_set_3_lance.tar.gz
+#   Zenodo DOI: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
+#   File: lance_data_test_set_3.tar.gz
 #
 # Extract to:
 #   /path/to/your/working/directory/data/lance_data_test_set_3

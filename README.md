@@ -7,7 +7,7 @@ The approach utilizes **Positive-Unlabeled (PU) Learning** to train models using
 
 
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 spectral_quality_assessment/
@@ -127,44 +127,58 @@ Download the checkpoints to the `checkpoints/` directory.
 * **nnPU Model (Recommended)**: The final model trained with non-negative PU loss.
 * **BCE Models**: Polarity-specific models used for prior estimation.
 
-[**Download Models (Zenodo Link)**](https://zenodo.org/record/XXXXXX)
+[**Download Models (Zenodo Link)**](https://doi.org/10.5281/zenodo.18266932)
 
 ### 2. Datasets (Lance Format)
 If you wish to reproduce the training or testing results without processing raw files, download the pre-processed Lance datasets.
 
-* **Training/Validation Data**: `train_validation_lance.tar.gz`
-* **Test Sets**: `test_set_1_lance.tar.gz`, `test_set_2_lance.tar.gz`, `test_set_3_lance.tar.gz`
+* **Training/Validation Data**: `lance_data_train_validation.tar.gz`
+* **Test Sets**: `lance_data_test_set_1.tar.gz`, `lance_data_test_set_2.tar.gz`, `lance_data_test_set_3.tar.gz`
 
-[**Download Datasets (Zenodo Link)**](https://zenodo.org/record/XXXXXX)
+[**Download Datasets (Zenodo Link)**](https://doi.org/10.5281/zenodo.18266932)
 
 ## Inference
 
-You can run the model on the provided test sets or on your own custom data.
+For detailed inference instructions, see [`docs/INFERENCE.md`](docs/INFERENCE.md).
+
+You can run the model on the provided test set or on your own custom data.
 
 ### Option A: Inference on Provided Test Sets
-To evaluate the model on the provided Test Set 3 (Lance format downloaded from Zenodo):
+To evaluate the model on the provided Test Set 3 (Lance format downloaded from Zenodo: `lance_data_test_set_3`):
 
 ```bash
-python scripts/inference/predict_lance_all.py \
-    --checkpoint_path checkpoints/best_model_nnpu.ckpt \
-    --lance_path data/lance_data_test_set_3 \
-    --output_csv results_test_3.csv
-    
+sbatch slurm_scripts/inference/run_predict_lance.sh
 ```
+
+**Note**: Before running, edit `slurm_scripts/inference/run_predict_lance.sh` to configure:
+- Paths to checkpoint and dataset
+- Output directory
+- Batch size and other parameters
+
 ### Option B: Inference on Custom Data
 To run the model on your own data, you must first convert your `.raw` or `.mzML` files into the Lance format required by the model.
 
 1. **Preprocess Data**: Follow the instructions in [`docs/DATA_PREPROCESSING.md`] to generate a Lance dataset from your files.
-2. **Run Prediction**:
+2. **Run Prediction**: Edit `slurm_scripts/inference/run_predict_lance.sh` to point to your custom dataset, then run:
+
+   ```bash
+   sbatch slurm_scripts/inference/run_predict_lance.sh
+   ```
+
+   Or run directly with Python:
 
    ```bash
    python scripts/inference/predict_lance_all.py \
        --checkpoint_path checkpoints/best_model_nnpu.ckpt \
        --lance_path path/to/your/custom_lance_dataset \
        --output_csv your_results.csv
+   ```
+
 **Output**: The script generates a CSV containing the `original_index`, `probability` (quality score), `mzml_filepath`, and `scan_number`.
 
 ## Training
+
+For detailed training instructions, see [`docs/TRAINING.md`](docs/TRAINING.md).
 
 Training involves a multi-stage pipeline designed for PU learning. You may train using the provided Zenodo datasets or your own preprocessed Lance datasets.
 
@@ -177,13 +191,13 @@ Training involves a multi-stage pipeline designed for PU learning. You may train
 Train separate models for positive (`--polarity 1`) and negative (`--polarity 0`) modes.
 
 ```bash
-# Example for positive polarity
-python scripts/training/training_bce_loss_diff_polarity_one_hot.py \
-    --lance_dataset_path data/lance_datasets \
-    --polarity 1 \
-    --save_dir logs/bce_pos 
-  ```
-### 2. Prior Estimation
+sbatch slurm_scripts/training/run_train_bce_loss_diff_polarity.sh
+```
+
+**Note**: Before running, edit `slurm_scripts/training/run_train_bce_loss_diff_polarity.sh` to configure:
+- Polarity setting (`--polarity 0` for negative, `--polarity 1` for positive)
+- Paths to Lance datasets
+
 Use the trained BCE models to predict probabilities on Test Set 1, then calculate the average probability to estimate the priors.
 
 ```bash
@@ -199,17 +213,19 @@ python scripts/inference/predict_lance_diff_polarity_one_hot.py \
 Train the final model using the priors estimates.
 
 ```bash
+sbatch slurm_scripts/training/run_train_nnpu_loss.sh
+```
 
-python scripts/training/training_nn_pu_loss_detach_diff_polarity.py \
-    --lance_dataset_path data/lance_datasets \
-    --prior_pos 0.454 \
-    --prior_neg 0.285 \
-    --save_dir logs/nnpu_final
- ```   
+**Note**: Before running, edit `slurm_scripts/training/run_train_nnpu_loss.sh` to configure:
+- Prior estimates (`--prior_pos` and `--prior_neg`)
+- Paths to Lance datasets
+- Hyperparameters (learning rates, batch size, etc.)
 
 
 
 ### (Optional) Preparing Data from Scratch
+
+For detailed data preprocessing instructions, see [`docs/DATA_PREPROCESSING.md`](docs/DATA_PREPROCESSING.md).
 
 If you want to process raw data and create the Lance datasets yourself:
 
@@ -231,27 +247,7 @@ For detailed instructions, see [`tools/README.md`](tools/README.md)
 
 #### 2. Download GNPS Spectral Libraries
 
-For library matching, download spectral libraries from GNPS:
-
-```bash
-# Create directory for libraries
-mkdir -p data/libraries
-
-# Download from GNPS (https://gnps.ucsd.edu/ProteoSAFe/libraries.jsp)
-# Recommended libraries:
-#   - GNPS-LIBRARY (all public spectral libraries)
-#   - Separate by polarity: positive mode and negative mode
-
-# Place downloaded files as:
-#   data/libraries/spectral_db_positive.mgf
-#   data/libraries/spectral_db_negative.mgf
-```
-
-**Direct download links**:
-- Visit [GNPS Spectral Libraries](https://external.gnps2.org/processed_gnps_data/matchms.mgf)
-- Or browse: [GNPS Library Portal](https://gnps.ucsd.edu/ProteoSAFe/libraries.jsp)
-- Download "ALL_GNPS" library 
-- Filter/split by ionization mode if needed
+For detailed instructions on downloading and processing GNPS spectral libraries, see [`data/libraries/README.md`](data/libraries/README.md).
 
 #### 3. Run Data Processing Pipeline
 

@@ -8,22 +8,9 @@ This directory should contain external tools required for data preprocessing. Th
 
 **Purpose**: Convert Thermo .raw files to .mzML format
 
-**Installation**:
-
-```bash
-# Download latest release
-wget https://github.com/compomics/ThermoRawFileParser/releases/download/v1.4.4/ThermoRawFileParser1.4.4.zip
-
-# Extract
-unzip ThermoRawFileParser1.4.4.zip -d tools/ThermoRawFileParser/
-
-# Verify installation
-mono tools/ThermoRawFileParser/ThermoRawFileParser.exe --help
-```
 
 **Links**:
 - GitHub: https://github.com/compomics/ThermoRawFileParser
-- Latest Release: https://github.com/compomics/ThermoRawFileParser/releases/latest
 
 **Requirements**:
 - Mono runtime (Linux/macOS) or .NET Framework (Windows)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Mass Spectrometry Data Processing Pipeline
-# This script automates the processing of MS data files for model training preparation
+# This script automates the processing of MS data files for Lance  dataset creation preparation
 
 import os
 import sys
@@ -45,7 +45,6 @@ def setup_logging(log_dir: str) -> logging.Logger:
     return logger
 
 
-# Step 1: Move incomplete MSOrder files to invalid subfolder
 def move_incomplete_msorder_files(root_path: str, logger: logging.Logger) -> int:
     """
     Recursively finds .csv files under root_path that do not contain '2' in the 'MSOrder' column
@@ -132,7 +131,6 @@ def move_incomplete_msorder_files(root_path: str, logger: logging.Logger) -> int
     return moved_count
 
 
-# Step 2: Check CSV files for required columns and proper MSOrder values
 def check_csv_files(root_path: str, required_columns: List[str], logger: logging.Logger) -> Tuple[List[str], List[str]]:
     """
     Recursively checks CSV files under the root_path for:
@@ -224,7 +222,7 @@ def standardize_columns(root_path: str, logger: logging.Logger) -> Dict[str, Lis
 
     for dirpath, _, filenames in os.walk(root_path):
         for file in filenames:
-            if file.endswith('.csv') and not file.endswith(('_processed.csv', '_annotated.csv')):
+            if file.endswith('.csv') and not file.endswith(('_processed.csv')):
                 csv_path = os.path.join(dirpath, file)
 
                 try:
@@ -634,7 +632,7 @@ def label_data(root_path: str, tsv_path: str, logger: logging.Logger) -> tuple[i
                     csv_data['Compound_name'] = csv_data['Scan'].map(scan_to_name).where(csv_data['label'] == 1,
                                                                                          other=pd.NA)
 
-                    annotated_csv_path = csv_path.replace('_processed.csv', '_annotated_21_12.csv')
+                    annotated_csv_path = csv_path.replace('_processed.csv', '_annotated.csv')
                     csv_data.to_csv(annotated_csv_path, index=False)
                     logger.info(f"Labeled data saved to: {annotated_csv_path} (positive samples: {positive_in_file})")
                     labeled_count += 1
@@ -661,7 +659,7 @@ def organize_processed_files(root_path: str, output_dir: str, logger: logging.Lo
 
     for dirpath, _, filenames in os.walk(root_path):
         for file in filenames:
-            if file.endswith('_annotated_21_12.csv') :
+            if file.endswith('_annotated.csv') :
                 source_path = os.path.join(dirpath, file)
 
                 rel_path = os.path.relpath(dirpath, root_path)
@@ -671,7 +669,7 @@ def organize_processed_files(root_path: str, output_dir: str, logger: logging.Lo
                 dest_path = os.path.join(dest_dir, file)
                 copy_tasks.append((source_path, dest_path))
 
-                base_name = os.path.splitext(file.replace('_annotated_21_12', '').replace('_processed_annotated', ''))[0]
+                base_name = os.path.splitext(file.replace('_annotated', '').replace('_processed_annotated', ''))[0]
                 # Try handling both naming conventions if present
                 base_name_clean = base_name.replace('_processed', '')
 
@@ -796,7 +794,6 @@ def run_pipeline(root_path: str, output_dir: str, tsv_path: str, required_column
 
 def main():
     """Main entry point of the script."""
-    # Set up command line arguments
     parser = argparse.ArgumentParser(description="MS Data Processing Pipeline")
     parser.add_argument("--input", "-i", required=True, help="Input directory containing MS data files")
     parser.add_argument("--output", "-o", required=True, help="Output directory for processed files")
@@ -815,7 +812,7 @@ def main():
         "HCD Energy V(1)", "HCD Energy V(2)", "HCD Energy V(3)", "HCD Energy V(4)", "HCD Energy V(5)",
         "HCD Energy(1)", "HCD Energy(2)", "HCD Energy(3)", "HCD Energy(4)", "HCD Energy(5)",
         "Micro Scan Count", "Number of Lock Masses", "LM m/z-Correction (ppm)",
-        "Ionization" # Added Ionization to required list for main execution
+        "Ionization" 
     ]
 
     # Set up logging

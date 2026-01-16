@@ -8,7 +8,7 @@
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=20
 #SBATCH --mem=200G
-#SBATCH --time=24:00:00   # adjust depending on expected runtime
+#SBATCH --time=48:00:00
 
 #SBATCH --mail-user=YOUR_EMAIL@example.com
 #SBATCH --mail-type=BEGIN,END,FAIL
@@ -30,12 +30,11 @@ cd /path/to/your/working/directory
 
 # NOTE: Download spectral library files from GNPS before running:
 # - Visit https://external.gnps2.org/processed_gnps_data/matchms.mgf
-# - Download appropriate library files for positive and negative modes
-# - Place them in: /path/to/your/working/directory/data/libraries/
-# - Name them: spectral_db_positive.mgf and spectral_db_negative.mgf
+
+# - Split into positive and negative mode using `scripts/data_preprocessing/split_library.py`->it will create:spectral_db_positive.mgf and spectral_db_negative.mgf
 
 python /path/to/your/working/directory/scripts/data_preprocessing/library_matching_diff_polarity.py \
-    --msv_folder /path/to/your/working/directory/new_data\
+    --msv_folder /path/to/your/working/directory/data\
     --reference_mgf_positive /path/to/your/working/directory/data/libraries/spectral_db_positive.mgf \
     --reference_mgf_negative /path/to/your/working/directory/data/libraries/spectral_db_negative.mgf \
     --output_tsv /path/to/your/working/directory/results/spectral_matching_results.tsv \

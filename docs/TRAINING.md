@@ -12,16 +12,27 @@ The training process consists of three phases:
 
 ## Prerequisites
 
-- Lance datasets created or downloaded from Zenodo (see `DATA_PREPROCESSING.md`, /data/README.md)
-- GPU cluster with CUDA 12.8+
-- PyTorch 2.0+, Lightning 2.0+
-- At least 200GB RAM per node (for multi-GPU training)
+### Software Environment
+- **Python:** 3.11
+- **PyTorch Lightning:** 2.4.0
+- **PyTorch:** 2.0+
+- **CUDA:** 12.8+
+
+### Data
+- **Lance Datasets:** Created or downloaded from Zenodo (see `DATA_PREPROCESSING.md` or `data/README.md`).
+
+### Hardware
+- **System Memory:** At least 200 GB RAM per node is recommended for multi-GPU training.
+- **Tested Configuration:** The code was validated on a cluster node with the following specifications:
+  - **GPUs:** 2x Nvidia Tesla V100 (32 GB)
+  - **RAM:** 384 GB
+  - **CPU:** 2x Intel Xeon Gold 5218 @ 2.30GHz (16 cores)
 
 ## Phase 1: BCE Pre-training
 
 ### Purpose
 
-Train separate models for positive and negative ionization modes using binary cross-entropy (BCE) loss. These models serve as:
+Train separate models for positive and negative ionization mode data using binary cross-entropy (BCE) loss. These models serve as:
 - Initialization for nnPU training
 - Source for prior estimation (c parameter)
 
@@ -112,25 +123,20 @@ According to Elkan & Noto (2008), we estimate c by averaging model predictions o
 
 ### Step 1: Run Predictions on Test Set 1
 
-Using the best BCE models from Phase 1:
+Run predictions using the SLURM script:
 
-**Positive polarity:**
 ```bash
-python scripts/inference/predict_lance_diff_polarity_one_hot.py \
-    --checkpoint_path logs/training_bce_pos/best_model-*.ckpt \
-    --lance_path /path/to/test_1_data \
-    --output_csv test1_predictions_pos.csv \
-    --polarity 1
+cd slurm_scripts/inference
+sbatch run_predict_lance_bce_models.sh
 ```
 
-**Negative polarity:**
-```bash
-python scripts/inference/predict_lance_diff_polarity_one_hot.py \
-    --checkpoint_path logs/training_bce_neg/best_model-*.ckpt \
-    --lance_path /path/to/test_1_data \
-    --output_csv test1_predictions_neg.csv \
-    --polarity 0
-```
+**Note:** Edit the script to change the following parameters depending on polarity:
+- `--polarity`: Set to `1` for positive polarity, `0` for negative polarity
+- `--output_csv`: Set to different filenames for each polarity (e.g., `test1_predictions_pos.csv` for positive, `test1_predictions_neg.csv` for negative)
+
+Run the script twice (once for each polarity) to generate predictions for both modes.
+
+
 
 ### Step 2: Calculate c for Each Polarity
 
@@ -223,8 +229,8 @@ sbatch run_train_nnpu_loss.sh
 
 ```bash
 python scripts/training/training_nn_pu_loss_detach_diff_polarity.py \
-    --lance_uri /path/to/train_data \
-    --lance_uri_val /path/to/validation_data \
+    --lance_uri data/lance_data_train_validation \
+    --lance_uri_val data/lance_data_train_validation \
     --log_dir ./logs \
     --batch_size 256 \
     --num_workers 8 \
@@ -236,13 +242,8 @@ python scripts/training/training_nn_pu_loss_detach_diff_polarity.py \
     --epochs 30 \
     --instrument_embedding_dim 16 \
     --weight_decay 0.001 \
-    --prior_pos 0.454 \     # Set from Phase 2
-    --prior_neg 0.285       # Set from Phase 2
+    --prior_pos 0.45 \     # Set from Phase 2
+    --prior_neg 0.29       # Set from Phase 2
 ```
 
-
-Best checkpoint:
-```
-logs/training_nnpu/best_model-epoch=XX-val_recall=0.YYYY.ckpt
-```
 
