@@ -271,4 +271,8 @@ See detailed instructions in `docs/DATA_PREPROCESSING.md` for:
 - Running library matching
 - Creating Lance datasets
 
+## License
+
+This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
+
 
