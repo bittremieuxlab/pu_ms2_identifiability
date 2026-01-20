@@ -224,5 +224,81 @@ Final `instrument_settings` vector concatenates:
 **Test sets** (7, 5, 7 datasets):
 - Sample up to 100,000 MS2 scans per dataset
 
+---
+
+## Creating Lance Datasets for Test Sets
+
+For creating test set Lance datasets, use the dedicated script `create_lance_test_one_hot.py`. This script computes feature statistics from training data but only creates Lance datasets for test sets.
+
+**Key Features**:
+- Computes normalization statistics from training files (required for consistent feature scaling)
+- Creates Lance dataset only for test data (training Lance is not created)
+- Extracts precursor m/z directly from mzML files
+- Excludes blank files automatically
+
+**Usage**:
+
+```bash
+python scripts/data_preprocessing/create_lance_test_one_hot.py \
+    --train_file_list data/file_paths/file_paths_train.txt \
+    --test_file_list data/file_paths/file_paths_test.txt \
+    --lance_uri data/lance_data_test_set \
+    --test_table test_data \
+    --workers 16 \
+    --cap_test_set 100000 \
+    --test_set_csv data/metadata/test_datasets.csv \
+    --skip_train
+```
+
+**Key Arguments**:
+
+| Argument | Description |
+|----------|-------------|
+| `--train_file_list` | Path to training file list (used only for computing normalization statistics) |
+| `--test_file_list` | Path to test file list (mzML,csv pairs) |
+| `--lance_uri` | Output directory for Lance dataset |
+| `--test_table` | Table name for test data (default: `test_data`) |
+| `--cap_test_set` | Maximum MS2 scans per dataset (-1 for no cap) |
+| `--test_set_csv` | CSV file with dataset metadata (must contain `dataset_id` and `ms2` columns, semicolon-delimited) |
+| `--skip_train` | Skip training Lance creation (only compute stats from training files) |
+| `--exceptional_dataset_ids` | List of dataset IDs requiring special serial processing (for very large datasets) |
+| `--batch_size` | Number of files to process per batch (default: 10) |
+| `--workers` | Number of parallel workers |
+| `--max_peaks` | Maximum peaks per spectrum (default: 400) |
+
+**Test Set CSV Format**:
+
+The `--test_set_csv` file must be semicolon-delimited and contain at least:
+- `dataset_id`: MassIVE dataset ID (e.g., MSV000012345)
+- `ms2`: Total number of MS2 scans in the dataset
+
+The script will add two columns to track sampling:
+- `number_of_mzmls_considered`: Number of mzML files processed
+- `number_of_MS2s_taken`: Number of MS2 scans included after sampling
+
+**Example Test Set CSV** (`test_datasets.csv`):
+```
+dataset_id;ms2;species;lab
+MSV000012345;150000;human;lab1
+MSV000067890;80000;mouse;lab2
+```
+
+**Handling Large Datasets**:
+
+For datasets with many small files where individual file sampling doesn't work well, use `--exceptional_dataset_ids` to enable MS1-grouped sampling:
+
+```bash
+python scripts/data_preprocessing/create_lance_test_one_hot.py \
+    --train_file_list data/file_paths/file_paths_train.txt \
+    --test_file_list data/file_paths/file_paths_test.txt \
+    --lance_uri data/lance_data_test_set \
+    --test_table test_data \
+    --cap_test_set 100000 \
+    --test_set_csv data/metadata/test_datasets.csv \
+    --exceptional_dataset_ids MSV000012345 MSV000067890 \
+    --skip_train
+```
+
+This processes exceptional datasets serially and samples by MS1 scan groups to ensure all MS2 scans from the same MS1 precursor are kept together.
 
 
