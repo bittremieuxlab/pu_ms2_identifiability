@@ -130,7 +130,7 @@ sympy==1.13.1
 tblib==3.0.0
 threadpoolctl @ file:///croot/threadpoolctl_1719407800858/work
 toolz @ file:///croot/toolz_1736796253816/work
-torch==2.5.1
+torch==2.8.0
 torch-summary==1.4.5
 torchmetrics @ file:///home/conda/feedstock_root/build_artifacts/torchmetrics_1735195057326/work
 torchvision==0.20.1
