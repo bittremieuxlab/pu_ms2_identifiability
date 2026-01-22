@@ -20,7 +20,7 @@ sbatch slurm_scripts/data_preprocessing/library_matching.sh
 # Step 3a: Process and prepare data for Lance creation
 sbatch slurm_scripts/data_preprocessing/run_processing_pipeline.sh
 
-# Step 3b: Create Lance datasets
+# Step 3b: Create Lance datasets for training
 sbatch slurm_scripts/data_preprocessing/run_build_lance.sh
 ```
 
@@ -353,9 +353,6 @@ Where:
   12. LM m/z-Correction (ppm)
   13. Micro Scan Count
 
-**How to Generate Training Statistics JSON**:
-
-You can generate this file from your training data using the `create_lance_add_one_hot.py` script, which computes statistics during training dataset creation. Alternatively, you can compute it manually from your training CSV files by calculating mean and std for each of the 14 numerical instrument setting columns.
 
 **Using SLURM Script**:
 

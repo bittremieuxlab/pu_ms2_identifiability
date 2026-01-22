@@ -61,7 +61,7 @@ python scripts/data_preprocessing/create_lance_inference.py \
     --stats_file data/metadata/training_stats.json \
     --test_file_list data/file_paths/file_paths_inference.txt \
     --lance_uri results/lance_data_inference \
-    --test_table inference_data \
+    --test_table test_data \
     --workers $SLURM_CPUS_PER_TASK \
     --cap_test_set 100000 \
     --test_set_csv data/metadata/inference_datasets.csv
@@ -77,7 +77,7 @@ if [ $EXIT_CODE -eq 0 ]; then
     python -c "
 import os
 import lance
-table_name = 'inference_data'
+table_name = 'test_data'
 dataset_path = os.path.join('results/lance_data_inference', table_name)
 if os.path.exists(dataset_path):
     ds = lance.dataset(dataset_path)

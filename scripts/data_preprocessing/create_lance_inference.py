@@ -768,7 +768,7 @@ def parse_args():
     )
     parser.add_argument('--stats_file', type=str, required=True,
                         help='Path to JSON file with training set statistics (mean/std for each feature). '
-                             'Recommended location: data/metadata/training_stats.json')
+                             'Current location: data/metadata/training_stats.json')
     parser.add_argument('--test_file_list', type=str, default='test_file_paths.txt')
     parser.add_argument('--lance_uri', type=str, default='./mass_spec_lance_store')
     parser.add_argument('--train_table', type=str, default='train_data')
