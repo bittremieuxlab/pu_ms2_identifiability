@@ -1,4 +1,5 @@
 import os
+os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
 import sys
 import argparse
 import logging
@@ -11,7 +12,6 @@ from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
 import multiprocessing as mp
 
-# Ensure parent directory is in path for imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 try:
