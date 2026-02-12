@@ -90,7 +90,7 @@ spectral_quality_assessment/
 - Conda 
 - Access to a computing cluster (recommended for full pipeline)
 
-> **Note**: This project has been tested and run on a Linux environment HPC cluster.
+> **Note**: This project has been tested and run on a Linux environment HPC cluster, and the model was trained on this HPC system using 2 GPUs.
 
 ### Conda Environment 
 
@@ -139,6 +139,8 @@ For detailed inference instructions, see [`docs/INFERENCE.md`](docs/INFERENCE.md
 
 You can run the model on the provided test set or on your own custom data.
 
+The standalone inference script `scripts/inference/predict_lance_all.py` has been tested on both a Linux HPC cluster and macOS 15.6.1 (24G90).
+
 ### Option A: Inference on Provided Test Sets
 To evaluate the model on the provided Test Set 3 (Lance format downloaded from Zenodo: `lance_data_test_set_3`):
 
@@ -166,7 +168,7 @@ To run the model on your own data, you must first convert your `.raw` or `.mzML`
    ```bash
    python scripts/inference/predict_lance_all.py \
        --checkpoint_path checkpoints/best_model_nnpu.ckpt \
-       --lance_path path/to/your/custom_lance_dataset \
+       --lance_path path/to/your/custom_lance_dataset/test_data \
        --output_csv your_results.csv
    ```
 
