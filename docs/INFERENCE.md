@@ -21,7 +21,7 @@ sbatch slurm_scripts/inference/run_predict_lance.sh
 ```bash
 python scripts/inference/predict_lance_all.py \
     --checkpoint_path /path/to/checkpoints/best_model_nnpu.ckpt \
-    --lance_path /path/to/data/lance_data_test_set_3 \
+    --lance_path /path/to/data/lance_data_test_set_3/test_data\
     --output_csv results/predictions.csv \
     --batch_size 2048 \
     --fetch_metadata

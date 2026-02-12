@@ -74,7 +74,7 @@ echo "========================================"
 
 python scripts/inference/predict_lance_diff_polarity_one_hot.py \
     --checkpoint_path /path/to/your/working/directory/checkpoints/best_model_bce_negative.ckpt \
-    --lance_path /path/to/your/working/directory/data/lance_data_test_set_1 \
+    --lance_path /path/to/your/working/directory/data/lance_data_test_set_1/test_data \
     --output_csv results/predictions_polarity.csv \
     --polarity 0 \
     --batch_size 2048
