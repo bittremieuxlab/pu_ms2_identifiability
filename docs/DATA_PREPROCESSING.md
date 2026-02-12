@@ -320,23 +320,23 @@ python scripts/data_preprocessing/create_lance_inference.py \
 
 **Training Set Statistics JSON File**:
 
-The `--stats_file` argument requires a JSON file containing mean and standard deviation for each numerical feature index. This file should be created from your training data.
+The `--stats_file` argument requires a JSON file containing mean and standard deviation for each numerical feature index. This file has been  created using the training data and is provided in this repository at:
 
-**Recommended location**: `data/metadata/training_stats.json`
+`data/metadata/training_stats.json`
 
 **JSON Format**:
 ```json
 {
-    "0": {"mean": 2.5, "std": 0.8},
-    "1": {"mean": 3.2, "std": 1.1},
-    "2": {"mean": 100.5, "std": 25.3},
+    "0": {"mean": 1.42, "std": 0.46, "name": "MS2 Isolation Width"},
+    "1": {"mean": 0.74, "std": 0.64, "name": "Charge State"},
+    "2": {"mean": 56.96, "std": 29.58, "name": "Ion Injection Time (ms)"},
     ...
 }
 ```
 
 Where:
 - Keys are feature indices as strings ("0" through "13" for the 14 numerical features)
-- Each value contains `"mean"` and `"std"` for that feature
+- Each value contains `"mean"` and `"std"` for that feature, and a `"name"` describing the feature
 - Features correspond to the columns returned by `get_instrument_settings_columns()`:
   0. MS2 Isolation Width
   1. Charge State
@@ -374,7 +374,7 @@ The script will:
 - Run the inference Lance creation script
 - Display dataset statistics upon completion
 
-Make sure you have:
+It requires:
 - Created the training statistics JSON file at `data/metadata/training_stats.json`
 - Created the inference file list at `data/file_paths/file_paths_inference.txt`
 - Created the inference metadata CSV at `data/metadata/inference_datasets.csv` (if using reporting)
