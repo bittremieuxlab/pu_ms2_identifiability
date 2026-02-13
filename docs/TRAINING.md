@@ -24,9 +24,9 @@ The training process consists of three phases:
 ### Hardware
 - **System Memory:** At least 200 GB RAM per node is recommended for multi-GPU training.
 - **Tested Configuration:** The code was validated on a cluster node with the following specifications:
-  - **GPUs:** 2x Nvidia Tesla V100 (32 GB)
-  - **RAM:** 384 GB
-  - **CPU:** 2x Intel Xeon Gold 5218 @ 2.30GHz (16 cores)
+  - **GPUs:** 2x Nvidia Tesla A100
+  - **RAM:** 512 GB
+  - **CPU:** 2x Intel Xeon Gold 5320 @ 2.20GHz 
 
 ## Phase 1: BCE Pre-training
 

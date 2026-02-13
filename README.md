@@ -216,9 +216,9 @@ Use the trained BCE models to predict probabilities on Test Set 1, then calculat
 ```bash
 # Predict on Test Set 1
 python scripts/inference/predict_lance_diff_polarity_one_hot.py \
-    --checkpoint_path logs/bce_pos/best_model.ckpt \
-    --lance_path data/lance_data_test_set_1 \
-    --output_csv predictions_prior_est.csv \
+    --checkpoint_path logs/training_bce_loss/best_model.ckpt \
+    --lance_path data/lance_data_test_set_1/test_data \
+    --output_csv results/predictions_prior_est.csv \
     --polarity 1
     
   ```
