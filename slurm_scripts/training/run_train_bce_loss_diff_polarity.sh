@@ -30,6 +30,7 @@ source $(conda info --base)/etc/profile.d/conda.sh
 # NOTE: If using this script outside a cluster, ensure you have created the environment:
 #       conda env create -f environment.yml
 conda activate instrument_setting
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 
 # Debug: confirm environment and torch
 echo "Python path: $(which python)"

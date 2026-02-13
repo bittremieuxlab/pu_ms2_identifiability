@@ -8,7 +8,7 @@ dependencies:
   - python=3.11
   - pip
 
-  - libstdcxx-ng
+
   - numpy>=1.26,<2.0
   - pandas>=2.2
   - scipy

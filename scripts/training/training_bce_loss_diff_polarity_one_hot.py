@@ -127,19 +127,11 @@ class LanceBatchCollator:
         self.lance_dataset_path = lance_dataset_path
         self.ds = None
         self.rank = rank
-        self.log_count = 0
 
     def __call__(self, batch_indices: list[int]) -> dict:
         # 1. Open the dataset (if not already open in this worker process)
         if self.ds is None:
             self.ds = lance.dataset(self.lance_dataset_path)
-            script_logger.info(f"Collate (rank {self.rank}) opened dataset handle.")
-
-        if self.log_count < 1:
-            script_logger.info(
-                f"Collate (rank {self.rank}) fetching indices (first 10): {batch_indices[:10]}"
-            )
-            self.log_count += 1
 
         data_batch = self.ds.take(batch_indices).to_pydict()
         batch_size = len(batch_indices)
@@ -177,7 +169,7 @@ class LanceBatchCollator:
 
         if dataset_ids is not None:
             batch_dict["dataset_id"] = dataset_ids
-            script_logger.info("Dataset IDs are present ")
+            # script_logger.info("Dataset IDs are present ")
 
         return batch_dict
 
@@ -278,13 +270,15 @@ class ImprovedPyTorchSklearnWrapper:
         """
         self.model.eval()
         test_dataset = Subset(self.val_dataset, indices)
+        # Determine pin_memory based on device (only useful for CUDA)
+        use_pin_memory = torch.cuda.is_available() and not self.force_cpu
         test_loader = DataLoader(
             test_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=collate_fn,
-            persistent_workers=True,
-            pin_memory=True,
+            persistent_workers=True if self.num_workers > 0 else False,
+            pin_memory=use_pin_memory,
         )
         all_probs = []
         with torch.no_grad():
@@ -327,14 +321,17 @@ class ImprovedPyTorchSklearnWrapper:
         train_collator = LanceBatchCollator(train_lance_path, rank=rank)
         val_collator = LanceBatchCollator(val_lance_path, rank=rank)
 
+        # Determine pin_memory based on device (only useful for CUDA)
+        use_pin_memory = torch.cuda.is_available() and not self.force_cpu
+        
         script_logger.info("Creating Training DataLoader...")
         train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=train_collator,
-            persistent_workers=True,
-            pin_memory=True,
+            persistent_workers=True if self.num_workers > 0 else False,
+            pin_memory=use_pin_memory,
             shuffle=True,
         )
 
@@ -347,8 +344,8 @@ class ImprovedPyTorchSklearnWrapper:
                 batch_size=self.batch_size,
                 num_workers=self.num_workers,
                 collate_fn=val_collator,
-                persistent_workers=True,
-                pin_memory=True,
+                persistent_workers=True if self.num_workers > 0 else False,
+                pin_memory=use_pin_memory,
                 shuffle=False,
             )
         if callbacks is None:
@@ -371,16 +368,57 @@ class ImprovedPyTorchSklearnWrapper:
         )
         callbacks.append(model_checkpoint_callback)
         script_logger.info("Initializing pl.Trainer...")
-        trainer = pl.Trainer(
-            max_epochs=self.epochs,
-            logger=self.logger,
-            callbacks=callbacks,
-            enable_progress_bar=True,
-            accelerator="gpu",
-            devices=2,
-            strategy=DDPStrategy(gradient_as_bucket_view=True, static_graph=True),
-            precision="16-mixed",
-        )
+        
+        # Detect available hardware and configure trainer accordingly
+        num_gpus = 0
+        accelerator = "cpu"
+        devices = 1
+        strategy = None
+        precision = "32-true"  # Default to full precision
+        
+        if not self.force_cpu:
+            if torch.cuda.is_available():
+                num_gpus = torch.cuda.device_count()
+                script_logger.info(f"CUDA available: {num_gpus} GPU(s) detected")
+                if num_gpus > 0:
+                    accelerator = "gpu"
+                    devices = num_gpus if num_gpus <= 2 else 2  # Use up to 2 GPUs
+                    if devices > 1:
+                        strategy = DDPStrategy(gradient_as_bucket_view=True, static_graph=True)
+                        script_logger.info(f"Using DDP with {devices} GPUs")
+                    else:
+                        script_logger.info(f"Using single GPU")
+                    # Use mixed precision for GPU training
+                    precision = "16-mixed"
+            elif torch.backends.mps.is_available():
+                accelerator = "mps"
+                devices = 1
+                script_logger.info("MPS (macOS Metal) available, using single device")
+                # MPS doesn't support 16-mixed precision well, use full precision
+                precision = "32-true"
+            else:
+                script_logger.info("No GPU available, falling back to CPU")
+        else:
+            script_logger.info("CPU mode forced by user")
+        
+        script_logger.info(f"Trainer configuration: accelerator={accelerator}, devices={devices}, precision={precision}, strategy={strategy}")
+        
+        # Build trainer kwargs - only include strategy if it's not None
+        trainer_kwargs = {
+            "max_epochs": self.epochs,
+            "logger": self.logger,
+            "callbacks": callbacks,
+            "enable_progress_bar": True,
+            "accelerator": accelerator,
+            "devices": devices,
+            "precision": precision,
+        }
+        
+        # Only add strategy if we're using DDP (multiple GPUs)
+        if strategy is not None:
+            trainer_kwargs["strategy"] = strategy
+        
+        trainer = pl.Trainer(**trainer_kwargs)
 
         script_logger.info("Trainer.fit() starting.")
         trainer.fit(self.model, train_dataloaders=train_loader, val_dataloaders=val_loader)
@@ -426,58 +464,58 @@ class FixedHoldoutPUCallback(Callback):
         self.training_step_outputs = []
         self.batch_stats = []
 
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        """Collect training batch outputs for per-dataset loss calculation."""
-        if isinstance(outputs, dict) and "logits" in outputs and "labels" in outputs:
-
-            logits = outputs["logits"].detach()
-            labels = outputs["labels"].detach()
-
-            total_size = labels.shape[0]
-            if total_size > 0:
-                pos_count = (labels > 0).sum().item()
-                pos_percent = (pos_count / total_size) * 100
-                self.batch_stats.append(pos_percent)
-
-            dataset_ids = batch.get("dataset_id", None)
-            script_logger.info(
-                f"[CALLBACK TRAINING_BATCH_END] Batch {batch_idx}: dataset_ids present = {dataset_ids is not None}"
-            )
-            if dataset_ids is not None and batch_idx < 3:
-                script_logger.info(
-                    f"[CALLBACK TRAINING_BATCH_END] Type: {type(dataset_ids)}, Length: {len(dataset_ids)}, First 3: {dataset_ids[:3]}"
-                )
-
-            output_dict = {"logits": logits, "labels": labels}
-
-            if dataset_ids is not None:
-                try:
-                    criterion = pl_module.focal_loss
-                    original_reduction = criterion.reduction
-                    criterion.reduction = "none"
-                    per_sample_loss = criterion(logits, labels.to(logits.dtype))
-                    criterion.reduction = original_reduction
-
-                    output_dict["per_sample_loss"] = per_sample_loss.detach()
-                    output_dict["dataset_id"] = dataset_ids
-
-                except AttributeError:
-                    script_logger.warning(
-                        "Callback could not find 'pl_module.bce_loss'. "
-                        "Per-dataset training loss logging will be skipped."
-                    )
-                except Exception as e:
-                    script_logger.warning(
-                        f"Callback error calculating per-sample loss: {e}. "
-                        "Per-dataset loss logging will be skipped."
-                    )
-
-            self.training_step_outputs.append(output_dict)
-
-        else:
-            script_logger.warning(
-                "Training step output did not contain expected 'logits' and 'labels' keys."
-            )
+    # def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+    #     """Collect training batch outputs for per-dataset loss calculation."""
+    #     if isinstance(outputs, dict) and "logits" in outputs and "labels" in outputs:
+    #
+    #         logits = outputs["logits"].detach()
+    #         labels = outputs["labels"].detach()
+    #
+    #         total_size = labels.shape[0]
+    #         if total_size > 0:
+    #             pos_count = (labels > 0).sum().item()
+    #             pos_percent = (pos_count / total_size) * 100
+    #             self.batch_stats.append(pos_percent)
+    #
+    #         dataset_ids = batch.get("dataset_id", None)
+    #         script_logger.info(
+    #             f"[CALLBACK TRAINING_BATCH_END] Batch {batch_idx}: dataset_ids present = {dataset_ids is not None}"
+    #         )
+    #         if dataset_ids is not None and batch_idx < 3:
+    #             script_logger.info(
+    #                 f"[CALLBACK TRAINING_BATCH_END] Type: {type(dataset_ids)}, Length: {len(dataset_ids)}, First 3: {dataset_ids[:3]}"
+    #             )
+    #
+    #         output_dict = {"logits": logits, "labels": labels}
+    #
+    #         if dataset_ids is not None:
+    #             try:
+    #                 criterion = pl_module.focal_loss
+    #                 original_reduction = criterion.reduction
+    #                 criterion.reduction = "none"
+    #                 per_sample_loss = criterion(logits, labels.to(logits.dtype))
+    #                 criterion.reduction = original_reduction
+    #
+    #                 output_dict["per_sample_loss"] = per_sample_loss.detach()
+    #                 output_dict["dataset_id"] = dataset_ids
+    #
+    #             except AttributeError:
+    #                 script_logger.warning(
+    #                     "Callback could not find 'pl_module.bce_loss'. "
+    #                     "Per-dataset training loss logging will be skipped."
+    #                 )
+    #             except Exception as e:
+    #                 script_logger.warning(
+    #                     f"Callback error calculating per-sample loss: {e}. "
+    #                     "Per-dataset loss logging will be skipped."
+    #                 )
+    #
+    #         self.training_step_outputs.append(output_dict)
+    #
+    #     else:
+    #         script_logger.warning(
+    #             "Training step output did not contain expected 'logits' and 'labels' keys."
+    #         )
 
     def on_train_epoch_end(self, trainer, pl_module):
         """Calculate and log per-dataset training loss."""
@@ -656,13 +694,13 @@ class FixedHoldoutPUCallback(Callback):
 
             dataset_ids = batch.get("dataset_id", None)
 
-            script_logger.info(
-                f"[CALLBACK BATCH_END] Batch {batch_idx}: dataset_ids present = {dataset_ids is not None}"
-            )
-            if dataset_ids is not None and batch_idx < 3:
-                script_logger.info(
-                    f"[CALLBACK BATCH_END] Type: {type(dataset_ids)}, Length: {len(dataset_ids)}, First 3: {dataset_ids[:3]}"
-                )
+            # script_logger.info(
+            #     f"[CALLBACK BATCH_END] Batch {batch_idx}: dataset_ids present = {dataset_ids is not None}"
+            # )
+            # if dataset_ids is not None and batch_idx < 3:
+            #     script_logger.info(
+            #         f"[CALLBACK BATCH_END] Type: {type(dataset_ids)}, Length: {len(dataset_ids)}, First 3: {dataset_ids[:3]}"
+            #     )
 
             output_dict = {"logits": logits, "labels": labels}
 
@@ -1000,7 +1038,7 @@ def calculate_pu_metrics(probabilities, true_labels, labeled_pos_indices, epoch=
                     auroc_gmm_val = auc(fpr_final, tpr_final)
                 else:
                     auroc_gmm_val = 0.5
-                script_logger.info(f"Calculated Theoretical AUROC GMM: {auroc_gmm_val:.4f}")
+                # script_logger.info(f"Calculated Theoretical AUROC GMM: {auroc_gmm_val:.4f}")
                 if epoch is not None and log_dir is not None and fitted_gmm is not None:
                     plot_probability_distribution(probabilities, fitted_gmm, epoch, log_dir)
         except Exception as e:
@@ -1031,7 +1069,7 @@ def calculate_pu_metrics(probabilities, true_labels, labeled_pos_indices, epoch=
                 auprc_val = float(sorted_ranks[0])
         script_logger.info(f"Calculated AUPRC: {auprc_val:.4f}")
 
-    script_logger.info("--- End calculate_pu_metrics (v2) DEBUG LOGS ---")
+    # script_logger.info("--- End calculate_pu_metrics (v2) DEBUG LOGS ---")
     return {"auroc_gmm": float(auroc_gmm_val), "val_area_under_percentile_ranks": float(auprc_val)}
 
 

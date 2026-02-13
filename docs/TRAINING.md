@@ -23,10 +23,11 @@ The training process consists of three phases:
 
 ### Hardware
 - **System Memory:** At least 200 GB RAM per node is recommended for multi-GPU training.
-- **Tested Configuration:** The code was validated on a cluster node with the following specifications:
-  - **GPUs:** 2x Nvidia Tesla A100
+- **Production Training:** All models were trained on a Linux HPC cluster node with the following specifications:
+  - **GPUs:** 2x Nvidia Tesla A100 (80 GB)
   - **RAM:** 512 GB
-  - **CPU:** 2x Intel Xeon Gold 5320 @ 2.20GHz 
+  - **CPU:** 2x Intel Xeon Gold 5320 @ 2.20GHz
+- **macOS Testing:** The training scripts have been tested and are fully functional on macOS. The scripts automatically detect available hardware (GPU/MPS/CPU) and configure accordingly, making it possible to train models on macOS for development and testing purposes. 
 
 ## Phase 1: BCE Pre-training
 
@@ -93,14 +94,20 @@ sbatch run_train_bce_loss_diff_polarity.sh  # With --polarity 0
 
 ### Multi-GPU Training
 
-The scripts use PyTorch Lightning DDP (Distributed Data Parallel):
+**On Linux HPC clusters**, the scripts use PyTorch Lightning DDP (Distributed Data Parallel):
 
 ```bash
 #SBATCH --ntasks-per-node=2
 #SBATCH --gres=gpu:2
 ```
 
-Training automatically distributes across available GPUs.
+Training automatically distributes across available GPUs. The scripts detect available hardware and adapt accordingly:
+- **Multiple GPUs**: Uses DDP with up to 2 GPUs
+- **Single GPU**: Uses single GPU without DDP
+- **macOS MPS**: Uses Metal Performance Shaders (single device)
+- **CPU only**: Falls back to CPU if no GPU is available
+
+Use the `--force_cpu` flag to force CPU usage even when GPUs are available.
 
 ### Early Stopping
 
@@ -131,6 +138,8 @@ sbatch run_predict_lance_bce_models.sh
 ```
 
 **Note:** Edit the script to change the following parameters depending on polarity:
+- `--checkpoint_path`: either `checkpoints/best_model_bce_negative.ckpt` or `checkpoints/best_model_bce_positive.ckpt`
+  - **Download checkpoints**: These checkpoint files can be downloaded from Zenodo. See [`checkpoints/README.md`](../checkpoints/README.md) for download instructions and Zenodo DOI: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
 - `--polarity`: Set to `1` for positive polarity, `0` for negative polarity
 - `--output_csv`: Set to different filenames for each polarity (e.g., `test1_predictions_pos.csv` for positive, `test1_predictions_neg.csv` for negative)
 

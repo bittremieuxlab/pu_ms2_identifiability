@@ -109,20 +109,11 @@ class LanceBatchCollator:
         self.lance_dataset_path = lance_dataset_path
         self.ds = None  # We'll open this once per worker
         self.rank = rank
-        self.log_count = 0
 
     def __call__(self, batch_indices: list[int]) -> dict:
         # 1. Open the dataset (if not already open in this worker process)
         if self.ds is None:
             self.ds = lance.dataset(self.lance_dataset_path)
-            script_logger.info(f"Collate (rank {self.rank}) opened dataset handle.")
-
-        # Log the first batch of indices to confirm DDP sampling
-        if self.log_count < 1:
-            script_logger.info(
-                f"Collate (rank {self.rank}) fetching indices (first 10): {batch_indices[:10]}"
-            )
-            self.log_count += 1
 
         # 2. Fetch all data in ONE batched call
         data_batch = self.ds.take(batch_indices).to_pydict()
@@ -268,13 +259,15 @@ class ImprovedPyTorchSklearnWrapper:
         """
         self.model.eval()
         test_dataset = Subset(self.val_dataset, indices)
+        # Determine pin_memory based on device (only useful for CUDA)
+        use_pin_memory = torch.cuda.is_available() and not self.force_cpu
         test_loader = DataLoader(
             test_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=collate_fn,
-            persistent_workers=True,
-            pin_memory=True,
+            persistent_workers=True if self.num_workers > 0 else False,
+            pin_memory=use_pin_memory,
         )
         all_probs = []
         with torch.no_grad():
@@ -320,14 +313,17 @@ class ImprovedPyTorchSklearnWrapper:
         train_collator = LanceBatchCollator(train_lance_path, rank=rank)
         val_collator = LanceBatchCollator(val_lance_path, rank=rank)
 
+        # Determine pin_memory based on device (only useful for CUDA)
+        use_pin_memory = torch.cuda.is_available() and not self.force_cpu
+        
         script_logger.info("Creating Training DataLoader...")
         train_loader = DataLoader(
             self.train_dataset,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             collate_fn=train_collator,
-            persistent_workers=True,
-            pin_memory=True,
+            persistent_workers=True if self.num_workers > 0 else False,
+            pin_memory=use_pin_memory,
             shuffle=True,
         )
 
@@ -340,8 +336,8 @@ class ImprovedPyTorchSklearnWrapper:
                 batch_size=self.batch_size,
                 num_workers=self.num_workers,
                 collate_fn=val_collator,
-                persistent_workers=True,
-                pin_memory=True,
+                persistent_workers=True if self.num_workers > 0 else False,
+                pin_memory=use_pin_memory,
                 shuffle=False,
             )
         if callbacks is None:
@@ -365,16 +361,56 @@ class ImprovedPyTorchSklearnWrapper:
         )
         callbacks.append(model_checkpoint_callback)
         script_logger.info("Initializing pl.Trainer...")
-        trainer = pl.Trainer(
-            max_epochs=self.epochs,
-            logger=self.logger,
-            callbacks=callbacks,
-            enable_progress_bar=True,
-            accelerator="gpu",
-            devices=2,
-            strategy=DDPStrategy(gradient_as_bucket_view=True, static_graph=True),
-            precision="16-mixed",
-        )
+        
+        # Detect available hardware and configure trainer accordingly
+        num_gpus = 0
+        accelerator = "cpu"
+        devices = 1
+        strategy = None
+        precision = "32-true"
+        
+        if not self.force_cpu:
+            if torch.cuda.is_available():
+                num_gpus = torch.cuda.device_count()
+                script_logger.info(f"CUDA available: {num_gpus} GPU(s) detected")
+                if num_gpus > 0:
+                    accelerator = "gpu"
+                    devices = num_gpus if num_gpus <= 2 else 2  # Use up to 2 GPUs
+                    if devices > 1:
+                        strategy = DDPStrategy(gradient_as_bucket_view=True, static_graph=True)
+                        script_logger.info(f"Using DDP with {devices} GPUs")
+                    else:
+                        script_logger.info(f"Using single GPU")
+                    # Use mixed precision for GPU training
+                    precision = "16-mixed"
+            elif torch.backends.mps.is_available():
+                accelerator = "mps"
+                devices = 1
+                script_logger.info("MPS (macOS Metal) available, using single device")
+                precision = "32-true"
+            else:
+                script_logger.info("No GPU available, falling back to CPU")
+        else:
+            script_logger.info("CPU mode forced by user")
+        
+        script_logger.info(f"Trainer configuration: accelerator={accelerator}, devices={devices}, precision={precision}, strategy={strategy}")
+        
+        # Build trainer kwargs - only include strategy if it's not None
+        trainer_kwargs = {
+            "max_epochs": self.epochs,
+            "logger": self.logger,
+            "callbacks": callbacks,
+            "enable_progress_bar": True,
+            "accelerator": accelerator,
+            "devices": devices,
+            "precision": precision,
+        }
+        
+        # Only add strategy if we're using DDP (multiple GPUs)
+        if strategy is not None:
+            trainer_kwargs["strategy"] = strategy
+        
+        trainer = pl.Trainer(**trainer_kwargs)
 
         script_logger.info("Trainer.fit() starting.")
         trainer.fit(self.model, train_dataloaders=train_loader, val_dataloaders=val_loader)
@@ -661,9 +697,9 @@ class FixedHoldoutPUCallback(Callback):
             # Check for dataset_id and get per-sample loss
             dataset_ids = batch.get("dataset_id", None)
 
-            script_logger.info(
-                f"[CALLBACK BATCH_END] Batch {batch_idx}: dataset_ids present = {dataset_ids is not None}"
-            )
+            # script_logger.info(
+            #     f"[CALLBACK BATCH_END] Batch {batch_idx}: dataset_ids present = {dataset_ids is not None}"
+            # )
             if dataset_ids is not None and batch_idx < 3:  # Only log first 3 batches
                 script_logger.info(
                     f"[CALLBACK BATCH_END] Type: {type(dataset_ids)}, Length: {len(dataset_ids)}, First 3: {dataset_ids[:3]}"
@@ -1205,7 +1241,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--force_cpu", action="store_true", help="Force using CPU instead of GPU/MPS"
     )
-    parser.add_argument("--prior_pos", type=float, default=0.5)
-    parser.add_argument("--prior_neg", type=float, default=0.35)
+    parser.add_argument("--prior_pos", type=float, default=0.45)
+    parser.add_argument("--prior_neg", type=float, default=0.29)
     args = parser.parse_args()
     main(args)

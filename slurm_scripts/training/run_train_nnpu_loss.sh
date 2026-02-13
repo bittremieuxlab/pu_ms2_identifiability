@@ -1,20 +1,19 @@
 #!/bin/bash
-#
 
 
 #SBATCH --job-name=spectra_transformer_lance
 #SBATCH --output=logs/training_lance_%j.log
 #SBATCH --error=logs/training_lance_%j.err
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu        # ! CHECK YOUR CLUSTER'S GPU PARTITION NAME
 #SBATCH --ntasks-per-node=2
-#SBATCH --gres=gpu:2
+#SBATCH --gres=gpu:2           # ! ADJUST GPU COUNT AS NEEDED
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=200G
 
 #SBATCH --time=36:00:00
-#SBATCH --account=YOUR_ACCOUNT
+#SBATCH --account=YOUR_ACCOUNT   #  REQUIRED: Update with your account (if it's needed)
 
-#SBATCH --mail-user=YOUR_EMAIL@example.com
+#SBATCH --mail-user=YOUR_EMAIL@example.com  # Optional
 #SBATCH --mail-type=BEGIN,END,FAIL
 
 # Load necessary modules
@@ -28,6 +27,7 @@ source $(conda info --base)/etc/profile.d/conda.sh
 # NOTE: If using this script outside a cluster, ensure you have created the environment:
 #       conda env create -f environment.yml
 conda activate instrument_setting
+export LD_LIBRARY_PATH=$CONDA_PREFIX/lib:$LD_LIBRARY_PATH
 
 # Debug: confirm environment and torch
 echo "Python path: $(which python)"
@@ -56,11 +56,11 @@ mkdir -p logs
 #     cd data/
 #     wget https://zenodo.org/record/18266932/files/lance_data_train_validation.tar.gz
 #     tar -xzf lance_data_train_validation.tar.gz
-#     # This creates: data/lance_datasets/
+#     # This creates: data/lance_data_train_validation/
 #   
 #   Then use the same path for both arguments:
-#     --lance_uri data/lance_datasets
-#     --lance_uri_val data/lance_datasets
+#     --lance_uri data/lance_data_train_validation
+#     --lance_uri_val data/lance_data_train_validation
 #
 # OPTION 2: Create Lance dataset from scratch
 #   1. Download raw data from MassIVE (see docs/DATA_DOWNLOAD.md)

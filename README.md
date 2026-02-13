@@ -100,9 +100,16 @@ git clone https://github.com/bittremieuxlab/pu_ms2_identifiability.git
 cd pu_ms2_identifiability
 
 # Create and activate conda environment
+# For Linux HPC cluster:
 conda env create -f environment.yml
+
+# For macOS testing (training and inference):
+conda env create -f environment-mac.yml
+
 conda activate instrument_setting
 ```
+
+> **Note**: Use `environment.yml` for Linux HPC cluster environments. Use `environment-mac.yml` for testing training and inference on macOS.
 
 **External Tools** :
 If you intend to process **raw data** (convert `.raw` files to the Lance format used by the model), you must install the following tools in the `tools/` directory. If you only plan to use the pre-processed data from Zenodo, these are not required.
@@ -139,7 +146,7 @@ For detailed inference instructions, see [`docs/INFERENCE.md`](docs/INFERENCE.md
 
 You can run the model on the provided test set or on your own custom data.
 
-The standalone inference script `scripts/inference/predict_lance_all.py` has been tested on both a Linux HPC cluster and macOS 15.6.1 (24G90).
+> **Note**: Inference is supported on both Linux HPC clusters and macOS. The standalone inference script `scripts/inference/predict_lance_all.py` has been tested on both platforms (Linux HPC cluster with 1 GPU, and macOS 15.6.1 (24G90)).
 
 ### Option A: Inference on Provided Test Sets
 To evaluate the model on the provided Test Set 3 (Lance format downloaded from Zenodo: `lance_data_test_set_3`):
@@ -182,10 +189,9 @@ Training involves a multi-stage pipeline designed for PU learning. You may train
 
 ### Computational Environment
 
-All models were trained and tested on a high-performance computing (HPC) cluster node equipped with:
+**Production Training**: All models were trained on a high-performance computing (HPC) cluster node equipped with:
 - **CPUs**: Dual Intel Xeon Gold 5320 (2.20 GHz)
 - **GPUs**: 4× NVIDIA A100 (80 GB)
-
 
 Training was performed using distributed data parallelism across 2 GPUs with the following SLURM configuration:
 ```bash
@@ -194,6 +200,8 @@ Training was performed using distributed data parallelism across 2 GPUs with the
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=200G
 ```
+
+> **Note**: While production training was performed on an HPC cluster, the training scripts (`training_nn_pu_loss_detach_diff_polarity.py` and `training_bce_loss_diff_polarity_one_hot.py`) have been tested and are fully functional on macOS. The scripts automatically detect available hardware (GPU/MPS/CPU) and configure accordingly.
 
 ### Training Pipeline Summary
 1. **BCE Pre-training**: Train separate models for positive and negative polarities using Binary Cross-Entropy loss.
