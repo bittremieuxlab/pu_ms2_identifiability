@@ -6,7 +6,9 @@ This guide explains how to use trained models to predict MS2 spectral quality.
 
 - **Trained nnPU model checkpoint** - Download from Zenodo (see `checkpoints/README.md`) or use your own trained model
 - **Lance dataset** - Test Set 3 for final evaluation (download from Zenodo, see `data/README.md`)
-- **GPU** - The current implementation was tested using **2x Nvidia Tesla V100 (32 GB)**. The code was run on a cluster node equipped with Intel Xeon Gold 5218 CPUs and 384 GB of RAM.
+- **GPU** - The inference code has been tested on:
+  - **HPC cluster**: 1 GPU (Nvidia A100 or similar)
+  - **macOS**: macOS 15.6.1 (24G90)
 ## Running Inference
 
 Use the provided SLURM script to generate quality predictions for data in a Lance dataset (Test set 3):
