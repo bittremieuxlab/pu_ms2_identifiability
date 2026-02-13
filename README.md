@@ -90,7 +90,7 @@ spectral_quality_assessment/
 - Conda 
 - Access to a computing cluster (recommended for full pipeline)
 
-> **Note**: This project has been tested and run on a Linux environment HPC cluster, and the model was trained on this HPC system using 2 GPUs.
+> **Note**: This project has been tested and run on a Linux environment HPC cluster, and the model was trained on this HPC system using 2 GPUs. Training and inference have also been tested on macOS.
 
 ### Conda Environment 
 
@@ -224,10 +224,10 @@ Use the trained BCE models to predict probabilities on Test Set 1, then calculat
 ```bash
 # Predict on Test Set 1
 python scripts/inference/predict_lance_diff_polarity_one_hot.py \
-    --checkpoint_path logs/training_bce_loss/best_model.ckpt \
+    --checkpoint_path logs/training_bce_loss/best_model_bce_negative.ckpt \
     --lance_path data/lance_data_test_set_1/test_data \
     --output_csv results/predictions_prior_est.csv \
-    --polarity 1
+    --polarity 0
     
   ```
 
