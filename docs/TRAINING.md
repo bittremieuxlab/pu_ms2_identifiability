@@ -54,8 +54,8 @@ sbatch run_train_bce_loss_diff_polarity.sh
 
 ```bash
 python scripts/training/training_bce_loss_diff_polarity_one_hot.py \
-    --lance_uri /path/to/lance/ \
-    --lance_uri_val /path/to/lance/ \
+    --lance_uri data/lance_data_train_validation \
+    --lance_uri_val data/lance_data_train_validation \
     --log_dir ./logs \
     --batch_size 256 \
     --num_workers 8 \
@@ -138,7 +138,7 @@ sbatch run_predict_lance_bce_models.sh
 ```
 
 **Note:** Edit the script to change the following parameters depending on polarity:
-- `--checkpoint_path`: either `checkpoints/best_model_bce_negative.ckpt` or `checkpoints/best_model_bce_positive.ckpt`
+- `--checkpoint_path`: either `checkpoints/best_model_bce_negative.ckpt` or `checkpoints/best_model_bce_positive.ckpt` (depends if positive polarity or negative)
   - **Download checkpoints**: These checkpoint files can be downloaded from Zenodo. See [`checkpoints/README.md`](../checkpoints/README.md) for download instructions and Zenodo DOI: [10.5281/zenodo.18266932](https://doi.org/10.5281/zenodo.18266932)
 - `--polarity`: Set to `1` for positive polarity, `0` for negative polarity
 - `--output_csv`: Set to different filenames for each polarity (e.g., `test1_predictions_pos.csv` for positive, `test1_predictions_neg.csv` for negative)
