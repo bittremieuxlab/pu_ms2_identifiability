@@ -1091,7 +1091,7 @@ def main(args):
         for i in range(torch.cuda.device_count()):
             script_logger.info(f"GPU {i}: {torch.cuda.get_device_name(i)}")
 
-    experiment_name = "training_from_lance_02_11_bce_loss_diff_params"
+    experiment_name = "training_bce_loss"
     log_dir = os.path.join(args.log_dir, experiment_name)
     os.makedirs(log_dir, exist_ok=True)
 
