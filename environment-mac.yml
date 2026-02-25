@@ -55,6 +55,7 @@ dependencies:
       - distributed
 
       - lancedb
+      - lance
       - polars
       - einops
       - pydantic
