@@ -490,7 +490,7 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
         if dataset_id not in datasets_map:
             datasets_map[dataset_id] = []
         # Store the dataset_id with the file pair
-        datasets_map[dataset_id].append((mzml_path, csv_path, dataset_id))  # <-- MODIFIED
+        datasets_map[dataset_id].append((mzml_path, csv_path, dataset_id))
     logger.info(f"Grouped {len(file_pairs)} files into {len(datasets_map)} datasets.")
 
     # --- Step 1 (WAS 1.5): Apply capping and sampling ---
@@ -651,8 +651,7 @@ def parse_args():
     parser.add_argument('--test_set_csv', type=str, default='test_set.csv')
     parser.add_argument('--exceptional_dataset_ids', type=str, nargs='*', default=[])
 
-    # --- I'm adding the argument you originally asked for, just in case ---
-    # --- But the script logic above already adds the filepath by default ---
+
     parser.add_argument('--add_filepath_column', action='store_true',
                         help='(This is now default) Add mzml_filepath column.')
 
@@ -681,7 +680,6 @@ def load_reporting_df(csv_path: str) -> pd.DataFrame:
         return None
 
 
-# --- MODIFIED MAIN EXECUTION BLOCK ---
 if __name__ == '__main__':
     args = parse_args()
     start_time = datetime.now()
@@ -719,7 +717,6 @@ if __name__ == '__main__':
     train_file_pairs = []
     test_file_pairs = []
 
-    # 1. Load train file list and compute stats (for stats only, NOT creating train_data lance)
     # IMPORTANT: Exclude blanks from stats computation
     if not args.skip_train:
         if os.path.exists(args.train_file_list):
@@ -773,9 +770,7 @@ if __name__ == '__main__':
             test_report_df.reset_index().to_csv(args.test_set_csv, index=False, sep=';')
             logger.info(f"Updated test report saved to {args.test_set_csv}")
 
-        # NOTE: train_data (lance) is NOT created - only stats are computed from training files
 
-    # --- End of modifications ---
 
     end_time = datetime.now()
     duration = end_time - start_time

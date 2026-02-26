@@ -53,7 +53,6 @@ def get_one_hot_vector(value: float) -> List[float]:
 def get_instrument_settings_columns() -> List[str]:
     """
     Returns the list of NUMERICAL columns to be standardized.
-    REMOVED: 'Polarity', 'Ionization', 'Mild Trapping Mode', 'Activation1'
     """
     return [
         "MS2 Isolation Width", "Charge State", "Ion Injection Time (ms)",
