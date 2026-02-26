@@ -47,9 +47,8 @@ def get_instrument_settings_columns() -> List[str]:
         "HCD Energy(4)", "HCD Energy(5)", "LM m/z-Correction (ppm)", "Micro Scan Count"
     ]
 
-# --- MODIFIED FUNCTION: EXTRACT PRECURSOR FROM MZML ---
 def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict[str, Any]]:
-    """Loads and preprocesses MS1 spectra from an mzML file."""
+    """Loads and preprocesses spectra from an mzML file, extracting precursor m/z and MS1 reference for MS2."""
     scan_list = []
 
     if not os.path.exists(mzml_file):
@@ -69,8 +68,9 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                 mz_array = spectrum.get('m/z array')
                 intensity_array = spectrum.get('intensity array')
 
-                # Default precursor to 0.0 (will be filled if MS2)
+                # Defaults (will be filled if MS2)
                 mzml_precursor_mz = 0.0
+                precursor_ms1_scan = None
 
                 try:
                     # Only preprocess MS1 spectra
@@ -90,25 +90,23 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                         mz_array = mz_spectrum.mz
                         intensity_array = mz_spectrum.intensity
 
-                    # --- NEW LOGIC: Extract Precursor for MS2 ---
                     elif ms_level == 2:
-                        # Navigate the nested dictionary provided by pyteomics
                         precursors = spectrum.get('precursorList', {}).get('precursor', [])
                         if precursors:
-                            # We typically take the first precursor in the list
                             selected_ions = precursors[0].get('selectedIonList', {}).get('selectedIon', [])
                             if selected_ions:
-                                # Get the value
                                 val = selected_ions[0].get('selected ion m/z')
                                 if val is not None:
                                     mzml_precursor_mz = float(val)
-
+                            spectrum_ref = precursors[0].get('spectrumRef', '')
+                            precursor_ms1_scan = get_scan_number(spectrum_ref)
                     scan_list.append({
                         'scan_number': scan_number,
                         'ms_level': ms_level,
                         'mz_array': mz_array,
                         'intensity_array': intensity_array,
-                        'precursor_mz': mzml_precursor_mz  # <-- Store the extracted value
+                        'precursor_mz': mzml_precursor_mz,
+                        'precursor_ms1_scan': precursor_ms1_scan if ms_level == 2 else None,
                     })
 
                 except Exception as e:
@@ -168,7 +166,6 @@ def scale_features(instrument_settings: List[float], feature_stats: Dict[int, Di
     return np.array(scaled_settings, dtype=np.float32)
 
 
-# --- MODIFIED FUNCTION: USE EXTRACTED PRECURSOR ---
 def align_and_format_data(scan_list: List[Dict[str, Any]],
                           ms2_data: pd.DataFrame,
                           feature_stats: Dict[int, Dict[str, float]],
@@ -181,50 +178,64 @@ def align_and_format_data(scan_list: List[Dict[str, Any]],
     numerical_cols = get_instrument_settings_columns()
     categorical_cols = ["Polarity", "Ionization", "Mild Trapping Mode", "Activation1"]
 
-    current_ms1_data = None
-    current_ms1_scan_number = None
+    # Build a lookup of MS1 scan_number → mz/intensity arrays
+    ms1_data_lookup = {
+        scan['scan_number']: {
+            'mz_array': scan['mz_array'],
+            'intensity_array': scan['intensity_array'],
+        }
+        for scan in scan_list if scan['ms_level'] == 1
+    }
 
     for scan in scan_list:
-        if scan['ms_level'] == 1:
-            current_ms1_data = {'mz_array': scan['mz_array'], 'intensity_array': scan['intensity_array']}
-            current_ms1_scan_number = scan['scan_number']
-        elif scan['ms_level'] == 2 and current_ms1_data is not None:
-            scan_number = scan['scan_number']
-            if scan_number in ms2_scan_info:
-                ms2_info = ms2_scan_info[scan_number]
+        if scan['ms_level'] != 2:
+            continue
 
-                # Check for missing values in both numerical and categorical
-                if any(pd.isna(ms2_info.get(c)) for c in numerical_cols + categorical_cols):
-                    continue
+        scan_number = scan['scan_number']
+        precursor_ms1_scan = scan.get('precursor_ms1_scan')
 
-                # Scale numerical
-                raw_numerical = [float(ms2_info.get(col)) for col in numerical_cols]
-                scaled_settings = scale_features(raw_numerical, feature_stats)
+        # Require an explicit MS1 reference from spectrumRef
+        if precursor_ms1_scan is None or precursor_ms1_scan not in ms1_data_lookup:
+            continue
 
-                # One-Hot Encode Categorical
-                polarity_ohe = get_one_hot_vector(ms2_info.get('Polarity'))
-                ionization_ohe = get_one_hot_vector(ms2_info.get('Ionization'))
-                trapping_ohe = get_one_hot_vector(ms2_info.get('Mild Trapping Mode'))
-                activation_ohe = get_one_hot_vector(ms2_info.get('Activation1'))
+        if scan_number not in ms2_scan_info:
+            continue
 
-                # Concatenate: Numerical (Standardized) + Categorical (OHE)
-                final_instrument_settings = np.concatenate([
-                    scaled_settings, polarity_ohe, ionization_ohe, trapping_ohe, activation_ohe
-                ]).astype(np.float32)
+        ms1_data = ms1_data_lookup[precursor_ms1_scan]
+        ms2_info = ms2_scan_info[scan_number]
 
-                data_pairs.append({
-                    'ms1_scan_number': current_ms1_scan_number,
-                    'ms2_scan_number': scan_number,
-                    'mz_array': current_ms1_data['mz_array'].tolist(),
-                    'intensity_array': current_ms1_data['intensity_array'].tolist(),
-                    'instrument_settings': final_instrument_settings.tolist(),
-                    'precursor_mz': float(scan.get('precursor_mz', 0.0)),
-                    'label': float(ms2_info['label']),
-                    'compound_name': str(ms2_info.get('Compound_name', "")),
-                    'source_file': source_file,
-                    'dataset_id': dataset_id,
-                    'mzml_filepath': mzml_filepath
-                })
+        # Check for missing values in both numerical and categorical
+        if any(pd.isna(ms2_info.get(c)) for c in numerical_cols + categorical_cols):
+            continue
+
+        # Scale numerical
+        raw_numerical = [float(ms2_info.get(col)) for col in numerical_cols]
+        scaled_settings = scale_features(raw_numerical, feature_stats)
+
+        # One-Hot Encode Categorical
+        polarity_ohe = get_one_hot_vector(ms2_info.get('Polarity'))
+        ionization_ohe = get_one_hot_vector(ms2_info.get('Ionization'))
+        trapping_ohe = get_one_hot_vector(ms2_info.get('Mild Trapping Mode'))
+        activation_ohe = get_one_hot_vector(ms2_info.get('Activation1'))
+
+        # Concatenate: Numerical (Standardized) + Categorical (OHE)
+        final_instrument_settings = np.concatenate([
+            scaled_settings, polarity_ohe, ionization_ohe, trapping_ohe, activation_ohe
+        ]).astype(np.float32)
+
+        data_pairs.append({
+            'ms1_scan_number': precursor_ms1_scan,
+            'ms2_scan_number': scan_number,
+            'mz_array': ms1_data['mz_array'].tolist(),
+            'intensity_array': ms1_data['intensity_array'].tolist(),
+            'instrument_settings': final_instrument_settings.tolist(),
+            'precursor_mz': float(scan.get('precursor_mz', 0.0)),
+            'label': float(ms2_info['label']),
+            'compound_name': str(ms2_info.get('Compound_name', "")),
+            'source_file': source_file,
+            'dataset_id': dataset_id,
+            'mzml_filepath': mzml_filepath
+        })
     return data_pairs
 
 def process_single_file(args: Tuple[str, str, str, Dict[int, Dict[str, float]], int, int, int]) -> List[Dict[str, Any]]:
