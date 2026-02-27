@@ -12,8 +12,7 @@ def analyze_lance_stats_ohe_logic(dataset_path, polarity):
     ds = lance.dataset(dataset_path)
 
     # 1. Setup Scanner
-    # Removed filter_str as we are no longer filtering by instrument type
-    # We fetch 'instrument_settings' for OHE polarity and 'label' for stats
+
     scanner = ds.scanner(columns=["instrument_settings", "label"])
     batch_reader = scanner.to_batches()
 
@@ -29,7 +28,6 @@ def analyze_lance_stats_ohe_logic(dataset_path, polarity):
         df = batch.to_pandas()
 
         if polarity is not None:
-            # New OHE Logic: Check specific index in the settings array
             if polarity == 1:  # Positive
                 mask = df['instrument_settings'].apply(lambda x: x[POLARITY_POS_IDX] > 0.5)
             else:  # Negative
