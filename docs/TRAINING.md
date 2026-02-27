@@ -182,12 +182,12 @@ Where:
 ```bash
 # For positive polarity
 python scripts/post_processing_scripts/analyze_lance_one_hot.py \
-    --path data/lance_datasets/train_data \
+    --path data/lance_data_train_validation/train_data \
     --polarity 1
 
 # For negative polarity
 python scripts/post_processing_scripts/analyze_lance_one_hot.py \
-    --path data/lance_datasets/train_data \
+    --path data/lance_data_train_validation/train_data \
     --polarity 0
 ```
 
