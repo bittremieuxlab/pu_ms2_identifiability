@@ -30,6 +30,7 @@ def get_scan_number(id_string: str) -> int:
     match = re.search(r'scan=(\d+)', id_string)
     return int(match.group(1)) if match else None
 
+
 def get_one_hot_vector(value: float) -> List[float]:
     """Converts binary 0/1 value to One-Hot Vector [1, 0] or [0, 1]."""
     try:
@@ -37,6 +38,7 @@ def get_one_hot_vector(value: float) -> List[float]:
         return [1.0, 0.0] if val_int == 0 else [0.0, 1.0]
     except (ValueError, TypeError):
         return [0.0, 0.0]
+
 
 def get_instrument_settings_columns() -> List[str]:
     """Returns only the NUMERICAL columns to be standardized."""
@@ -47,8 +49,9 @@ def get_instrument_settings_columns() -> List[str]:
         "HCD Energy(4)", "HCD Energy(5)", "LM m/z-Correction (ppm)", "Micro Scan Count"
     ]
 
+
 def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict[str, Any]]:
-    """Loads and preprocesses spectra from an mzML file, extracting precursor m/z and MS1 reference for MS2."""
+    """Loads and preprocesses MS1 spectra from an mzML file."""
     scan_list = []
 
     if not os.path.exists(mzml_file):
@@ -68,9 +71,8 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                 mz_array = spectrum.get('m/z array')
                 intensity_array = spectrum.get('intensity array')
 
-                # Defaults (will be filled if MS2)
+                # Default precursor to 0.0 (will be filled if MS2)
                 mzml_precursor_mz = 0.0
-                precursor_ms1_scan = None
 
                 try:
                     # Only preprocess MS1 spectra
@@ -90,23 +92,25 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                         mz_array = mz_spectrum.mz
                         intensity_array = mz_spectrum.intensity
 
+                    # --- NEW LOGIC: Extract Precursor for MS2 ---
                     elif ms_level == 2:
+                        # Navigate the nested dictionary provided by pyteomics
                         precursors = spectrum.get('precursorList', {}).get('precursor', [])
                         if precursors:
+                            # We typically take the first precursor in the list
                             selected_ions = precursors[0].get('selectedIonList', {}).get('selectedIon', [])
                             if selected_ions:
+                                # Get the value
                                 val = selected_ions[0].get('selected ion m/z')
                                 if val is not None:
                                     mzml_precursor_mz = float(val)
-                            spectrum_ref = precursors[0].get('spectrumRef', '')
-                            precursor_ms1_scan = get_scan_number(spectrum_ref)
+
                     scan_list.append({
                         'scan_number': scan_number,
                         'ms_level': ms_level,
                         'mz_array': mz_array,
                         'intensity_array': intensity_array,
-                        'precursor_mz': mzml_precursor_mz,
-                        'precursor_ms1_scan': precursor_ms1_scan if ms_level == 2 else None,
+                        'precursor_mz': mzml_precursor_mz  # <-- Store the extracted value
                     })
 
                 except Exception as e:
@@ -151,7 +155,8 @@ def compute_stats(ms2_data: pd.DataFrame) -> Dict[int, Dict[str, float]]:
             all_settings.append(settings)
     if not all_settings: return {}
     all_settings = np.array(all_settings)
-    return {i: {"mean": np.mean(all_settings[:, i]), "std": np.std(all_settings[:, i])} for i in range(all_settings.shape[1])}
+    return {i: {"mean": np.mean(all_settings[:, i]), "std": np.std(all_settings[:, i])} for i in
+            range(all_settings.shape[1])}
 
 
 def scale_features(instrument_settings: List[float], feature_stats: Dict[int, Dict[str, float]]) -> np.ndarray:
@@ -178,65 +183,52 @@ def align_and_format_data(scan_list: List[Dict[str, Any]],
     numerical_cols = get_instrument_settings_columns()
     categorical_cols = ["Polarity", "Ionization", "Mild Trapping Mode", "Activation1"]
 
-    # Build a lookup of MS1 scan_number → mz/intensity arrays
-    ms1_data_lookup = {
-        scan['scan_number']: {
-            'mz_array': scan['mz_array'],
-            'intensity_array': scan['intensity_array'],
-        }
-        for scan in scan_list if scan['ms_level'] == 1
-    }
+    current_ms1_data = None
+    current_ms1_scan_number = None
 
     for scan in scan_list:
-        if scan['ms_level'] != 2:
-            continue
+        if scan['ms_level'] == 1:
+            current_ms1_data = {'mz_array': scan['mz_array'], 'intensity_array': scan['intensity_array']}
+            current_ms1_scan_number = scan['scan_number']
+        elif scan['ms_level'] == 2 and current_ms1_data is not None:
+            scan_number = scan['scan_number']
+            if scan_number in ms2_scan_info:
+                ms2_info = ms2_scan_info[scan_number]
 
-        scan_number = scan['scan_number']
-        precursor_ms1_scan = scan.get('precursor_ms1_scan')
+                # Check for missing values in both numerical and categorical
+                if any(pd.isna(ms2_info.get(c)) for c in numerical_cols + categorical_cols):
+                    continue
 
-        # Require an explicit MS1 reference from spectrumRef
-        if precursor_ms1_scan is None or precursor_ms1_scan not in ms1_data_lookup:
-            continue
+                # Scale numerical
+                raw_numerical = [float(ms2_info.get(col)) for col in numerical_cols]
+                scaled_settings = scale_features(raw_numerical, feature_stats)
 
-        if scan_number not in ms2_scan_info:
-            continue
+                # One-Hot Encode Categorical
+                polarity_ohe = get_one_hot_vector(ms2_info.get('Polarity'))
+                ionization_ohe = get_one_hot_vector(ms2_info.get('Ionization'))
+                trapping_ohe = get_one_hot_vector(ms2_info.get('Mild Trapping Mode'))
+                activation_ohe = get_one_hot_vector(ms2_info.get('Activation1'))
 
-        ms1_data = ms1_data_lookup[precursor_ms1_scan]
-        ms2_info = ms2_scan_info[scan_number]
+                # Concatenate: Numerical (Standardized) + Categorical (OHE)
+                final_instrument_settings = np.concatenate([
+                    scaled_settings, polarity_ohe, ionization_ohe, trapping_ohe, activation_ohe
+                ]).astype(np.float32)
 
-        # Check for missing values in both numerical and categorical
-        if any(pd.isna(ms2_info.get(c)) for c in numerical_cols + categorical_cols):
-            continue
-
-        # Scale numerical
-        raw_numerical = [float(ms2_info.get(col)) for col in numerical_cols]
-        scaled_settings = scale_features(raw_numerical, feature_stats)
-
-        # One-Hot Encode Categorical
-        polarity_ohe = get_one_hot_vector(ms2_info.get('Polarity'))
-        ionization_ohe = get_one_hot_vector(ms2_info.get('Ionization'))
-        trapping_ohe = get_one_hot_vector(ms2_info.get('Mild Trapping Mode'))
-        activation_ohe = get_one_hot_vector(ms2_info.get('Activation1'))
-
-        # Concatenate: Numerical (Standardized) + Categorical (OHE)
-        final_instrument_settings = np.concatenate([
-            scaled_settings, polarity_ohe, ionization_ohe, trapping_ohe, activation_ohe
-        ]).astype(np.float32)
-
-        data_pairs.append({
-            'ms1_scan_number': precursor_ms1_scan,
-            'ms2_scan_number': scan_number,
-            'mz_array': ms1_data['mz_array'].tolist(),
-            'intensity_array': ms1_data['intensity_array'].tolist(),
-            'instrument_settings': final_instrument_settings.tolist(),
-            'precursor_mz': float(scan.get('precursor_mz', 0.0)),
-            'label': float(ms2_info['label']),
-            'compound_name': str(ms2_info.get('Compound_name', "")),
-            'source_file': source_file,
-            'dataset_id': dataset_id,
-            'mzml_filepath': mzml_filepath
-        })
+                data_pairs.append({
+                    'ms1_scan_number': current_ms1_scan_number,
+                    'ms2_scan_number': scan_number,
+                    'mz_array': current_ms1_data['mz_array'].tolist(),
+                    'intensity_array': current_ms1_data['intensity_array'].tolist(),
+                    'instrument_settings': final_instrument_settings.tolist(),
+                    'precursor_mz': float(scan.get('precursor_mz', 0.0)),
+                    'label': float(ms2_info['label']),
+                    'compound_name': str(ms2_info.get('Compound_name', "")),
+                    'source_file': source_file,
+                    'dataset_id': dataset_id,
+                    'mzml_filepath': mzml_filepath
+                })
     return data_pairs
+
 
 def process_single_file(args: Tuple[str, str, str, Dict[int, Dict[str, float]], int, int, int]) -> List[Dict[str, Any]]:
     """Process a single mzML-CSV pair. Designed to run in parallel."""
@@ -493,7 +485,6 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
         datasets_map[dataset_id].append((mzml_path, csv_path, dataset_id))
     logger.info(f"Grouped {len(file_pairs)} files into {len(datasets_map)} datasets.")
 
-    # --- Step 1 (WAS 1.5): Apply capping and sampling ---
     all_files_to_process = []
     dataset_path = os.path.join(lance_uri, table_name)
     first_write_done = False
@@ -651,7 +642,8 @@ def parse_args():
     parser.add_argument('--test_set_csv', type=str, default='test_set.csv')
     parser.add_argument('--exceptional_dataset_ids', type=str, nargs='*', default=[])
 
-
+    # --- I'm adding the argument you originally asked for, just in case ---
+    # --- But the script logic above already adds the filepath by default ---
     parser.add_argument('--add_filepath_column', action='store_true',
                         help='(This is now default) Add mzml_filepath column.')
 
@@ -717,6 +709,7 @@ if __name__ == '__main__':
     train_file_pairs = []
     test_file_pairs = []
 
+    # 1. Load train file list and compute stats (for stats only, NOT creating train_data lance)
     # IMPORTANT: Exclude blanks from stats computation
     if not args.skip_train:
         if os.path.exists(args.train_file_list):
@@ -769,8 +762,6 @@ if __name__ == '__main__':
             )
             test_report_df.reset_index().to_csv(args.test_set_csv, index=False, sep=';')
             logger.info(f"Updated test report saved to {args.test_set_csv}")
-
-
 
     end_time = datetime.now()
     duration = end_time - start_time

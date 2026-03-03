@@ -31,30 +31,15 @@ def get_scan_number(id_string: str) -> int:
     return int(match.group(1)) if match else None
 
 def get_one_hot_vector(value: float) -> List[float]:
-    """
-    Converts binary 0/1 value to One-Hot Vector.
-    0 -> [1.0, 0.0]
-    1 -> [0.0, 1.0]
-    """
+    """Converts binary 0/1 value to One-Hot Vector [1, 0] or [0, 1]."""
     try:
         val_int = int(value)
-        if val_int == 0:
-            return [1.0, 0.0]
-        elif val_int == 1:
-            return [0.0, 1.0]
-        else:
-            # Fallback for unexpected values (treat as 0 or handle error)
-            return [1.0, 0.0]
+        return [1.0, 0.0] if val_int == 0 else [0.0, 1.0]
     except (ValueError, TypeError):
-        # Fallback for NaNs
         return [0.0, 0.0]
 
-
 def get_instrument_settings_columns() -> List[str]:
-    """
-    Returns the list of NUMERICAL columns to be standardized.
-    REMOVED: 'Polarity', 'Ionization', 'Mild Trapping Mode', 'Activation1'
-    """
+    """Returns only the NUMERICAL columns to be standardized."""
     return [
         "MS2 Isolation Width", "Charge State", "Ion Injection Time (ms)",
         "Conversion Parameter C", "Energy1", "Orbitrap Resolution",
@@ -63,7 +48,7 @@ def get_instrument_settings_columns() -> List[str]:
     ]
 
 def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict[str, Any]]:
-    """Loads and preprocesses spectra from an mzML file, extracting precursor m/z for MS2."""
+    """Loads and preprocesses spectra from an mzML file, extracting precursor m/z and MS1 reference for MS2."""
     scan_list = []
 
     if not os.path.exists(mzml_file):
@@ -83,11 +68,12 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                 mz_array = spectrum.get('m/z array')
                 intensity_array = spectrum.get('intensity array')
 
-                # Initialize precursor_mz (defaults to 0.0 or NaN)
+                # Defaults (will be filled if MS2)
                 mzml_precursor_mz = 0.0
+                precursor_ms1_scan = None
 
                 try:
-                    # 1. Preprocess MS1 spectra
+                    # Only preprocess MS1 spectra
                     if ms_level == 1:
                         mz_spectrum = sus.MsmsSpectrum(
                             identifier=str(scan_number),
@@ -104,24 +90,23 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                         mz_array = mz_spectrum.mz
                         intensity_array = mz_spectrum.intensity
 
-                    # 2. Extract Precursor m/z from MS2 spectra (FROM MZML)
                     elif ms_level == 2:
-                        # Pyteomics nested dictionary structure
                         precursors = spectrum.get('precursorList', {}).get('precursor', [])
                         if precursors:
-                            # Typically take the first precursor
                             selected_ions = precursors[0].get('selectedIonList', {}).get('selectedIon', [])
                             if selected_ions:
                                 val = selected_ions[0].get('selected ion m/z')
                                 if val is not None:
                                     mzml_precursor_mz = float(val)
-
+                            spectrum_ref = precursors[0].get('spectrumRef', '')
+                            precursor_ms1_scan = get_scan_number(spectrum_ref)
                     scan_list.append({
                         'scan_number': scan_number,
                         'ms_level': ms_level,
                         'mz_array': mz_array,
                         'intensity_array': intensity_array,
-                        'precursor_mz': mzml_precursor_mz  # <-- Storing extracted value here
+                        'precursor_mz': mzml_precursor_mz,
+                        'precursor_ms1_scan': precursor_ms1_scan if ms_level == 2 else None,
                     })
 
                 except Exception as e:
@@ -131,6 +116,7 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
         scan_list.sort(key=lambda x: x['scan_number'])
         ms1_count = sum(1 for s in scan_list if s['ms_level'] == 1)
         ms2_count = sum(1 for s in scan_list if s['ms_level'] == 2)
+        # Quieter logging for this function, as it's called a lot
         logger.debug(f"  Loaded {ms1_count} MS1 and {ms2_count} MS2 scans from {os.path.basename(mzml_file)}")
 
     except Exception as e:
@@ -157,151 +143,105 @@ def load_ms2_data(csv_file: str) -> pd.DataFrame:
 
 
 def compute_stats(ms2_data: pd.DataFrame) -> Dict[int, Dict[str, float]]:
-    """Computes mean and std for instrument settings for standardization."""
     instrument_settings_cols = get_instrument_settings_columns()
     all_settings = []
-
     for _, row in ms2_data.iterrows():
-        settings = [
-            float(row[col]) for col in instrument_settings_cols if col in row and pd.notna(row[col])
-        ]
+        settings = [float(row[col]) for col in instrument_settings_cols if col in row and pd.notna(row[col])]
         if len(settings) == len(instrument_settings_cols):
             all_settings.append(settings)
-
-    if not all_settings:
-        logger.warning("No valid instrument settings found to compute stats.")
-        return {}
-
+    if not all_settings: return {}
     all_settings = np.array(all_settings)
-    feature_stats = {
-        i: {"mean": np.mean(all_settings[:, i]), "std": np.std(all_settings[:, i])}
-        for i in range(all_settings.shape[1])
-    }
-    return feature_stats
+    return {i: {"mean": np.mean(all_settings[:, i]), "std": np.std(all_settings[:, i])} for i in range(all_settings.shape[1])}
 
 
 def scale_features(instrument_settings: List[float], feature_stats: Dict[int, Dict[str, float]]) -> np.ndarray:
-    """Standardize the instrument settings."""
     scaled_settings = []
     for i, value in enumerate(instrument_settings):
         if i in feature_stats:
-            mean_val = feature_stats[i]["mean"]
-            std_val = feature_stats[i]["std"]
-            if np.isnan(mean_val) or np.isnan(std_val):
-                scaled_value = 0.0
-            else:
-                scaled_value = (value - mean_val) / std_val if std_val > 0 else 0.0
+            mean_val, std_val = feature_stats[i]["mean"], feature_stats[i]["std"]
+            scaled_value = (value - mean_val) / std_val if std_val > 0 else 0.0
             scaled_settings.append(scaled_value)
         else:
             scaled_settings.append(value)
-
     return np.array(scaled_settings, dtype=np.float32)
 
 
-# --- MODIFIED FUNCTION 2: Use Precursor from Scan List ---
+# --- MODIFIED FUNCTION: USE EXTRACTED PRECURSOR ---
 def align_and_format_data(scan_list: List[Dict[str, Any]],
                           ms2_data: pd.DataFrame,
                           feature_stats: Dict[int, Dict[str, float]],
                           source_file: str,
                           dataset_id: str,
                           mzml_filepath: str) -> List[Dict[str, Any]]:
-    """Aligns MS1 and MS2 scans, applies scaling, and formats for Lance."""
+    """Aligns MS1/MS2 and applies One-Hot Encoding to categorical fields."""
     data_pairs = []
     ms2_scan_info = ms2_data.set_index('Scan').to_dict('index')
-
-    # 1. Numerical columns to be standardized
     numerical_cols = get_instrument_settings_columns()
-
-    # Define the 4 categorical columns we need to check manually
     categorical_cols = ["Polarity", "Ionization", "Mild Trapping Mode", "Activation1"]
 
-    current_ms1_data = None
-    current_ms1_scan_number = None
+    # Build a lookup of MS1 scan_number → mz/intensity arrays
+    ms1_data_lookup = {
+        scan['scan_number']: {
+            'mz_array': scan['mz_array'],
+            'intensity_array': scan['intensity_array'],
+        }
+        for scan in scan_list if scan['ms_level'] == 1
+    }
 
     for scan in scan_list:
+        if scan['ms_level'] != 2:
+            continue
+
         scan_number = scan['scan_number']
-        ms_level = scan['ms_level']
+        precursor_ms1_scan = scan.get('precursor_ms1_scan')
 
-        if ms_level == 1:
-            current_ms1_data = {
-                'mz_array': scan['mz_array'],
-                'intensity_array': scan['intensity_array']
-            }
-            current_ms1_scan_number = scan_number
+        # Require an explicit MS1 reference from spectrumRef
+        if precursor_ms1_scan is None or precursor_ms1_scan not in ms1_data_lookup:
+            continue
 
-        elif ms_level == 2 and current_ms1_data is not None:
-            if scan_number in ms2_scan_info:
-                ms2_info = ms2_scan_info[scan_number]
-                compound_name = ms2_info.get('Compound_name', "")
+        if scan_number not in ms2_scan_info:
+            continue
 
-                # 2. Extract Numerical Settings
-                raw_numerical_settings = []
-                valid_row = True
+        ms1_data = ms1_data_lookup[precursor_ms1_scan]
+        ms2_info = ms2_scan_info[scan_number]
 
-                for col in numerical_cols:
-                    val = ms2_info.get(col)
-                    if val is None or pd.isna(val):
-                        valid_row = False
-                        break
-                    raw_numerical_settings.append(float(val))
+        # Check for missing values in both numerical and categorical
+        if any(pd.isna(ms2_info.get(c)) for c in numerical_cols + categorical_cols):
+            continue
 
-                # 3. Check for existence of Categorical columns
-                for cat_col in categorical_cols:
-                    if pd.isna(ms2_info.get(cat_col)):
-                        valid_row = False
-                        break
+        # Scale numerical
+        raw_numerical = [float(ms2_info.get(col)) for col in numerical_cols]
+        scaled_settings = scale_features(raw_numerical, feature_stats)
 
-                if not valid_row:
-                    continue
+        # One-Hot Encode Categorical
+        polarity_ohe = get_one_hot_vector(ms2_info.get('Polarity'))
+        ionization_ohe = get_one_hot_vector(ms2_info.get('Ionization'))
+        trapping_ohe = get_one_hot_vector(ms2_info.get('Mild Trapping Mode'))
+        activation_ohe = get_one_hot_vector(ms2_info.get('Activation1'))
 
-                # 4. Scale ONLY the numerical settings
-                scaled_settings = scale_features(raw_numerical_settings, feature_stats)
+        # Concatenate: Numerical (Standardized) + Categorical (OHE)
+        final_instrument_settings = np.concatenate([
+            scaled_settings, polarity_ohe, ionization_ohe, trapping_ohe, activation_ohe
+        ]).astype(np.float32)
 
-                # 5. One-Hot Encode the 4 categorical columns
-                # Helper logic: 0 -> [1, 0], 1 -> [0, 1]
-
-                # Polarity (0 or 1)
-                polarity_ohe = get_one_hot_vector(ms2_info.get('Polarity'))
-
-                # Ionization (NSI=0, ESI=1)
-                ionization_ohe = get_one_hot_vector(ms2_info.get('Ionization'))
-
-                # Mild Trapping Mode (Off=0, On=1)
-                trapping_ohe = get_one_hot_vector(ms2_info.get('Mild Trapping Mode'))
-
-                # Activation1 (Others=0, HCD=1)
-                activation_ohe = get_one_hot_vector(ms2_info.get('Activation1'))
-
-                # 6. Concatenate everything
-                final_instrument_settings = np.concatenate([
-                    scaled_settings,
-                    polarity_ohe,
-                    ionization_ohe,
-                    trapping_ohe,
-                    activation_ohe
-                ]).astype(np.float32)
-
-                precursor_from_mzml = scan.get('precursor_mz', 0.0)
-                label = ms2_info['label']
-
-                data_pairs.append({
-                    'ms1_scan_number': current_ms1_scan_number,
-                    'ms2_scan_number': scan_number,
-                    'mz_array': current_ms1_data['mz_array'].tolist(),
-                    'intensity_array': current_ms1_data['intensity_array'].tolist(),
-                    'instrument_settings': final_instrument_settings.tolist(),
-                    'precursor_mz': float(precursor_from_mzml),
-                    'label': float(label),
-                    'compound_name': str(compound_name),
-                    'source_file': source_file,
-                    'dataset_id': dataset_id,
-                    'mzml_filepath': mzml_filepath
-                })
-
+        data_pairs.append({
+            'ms1_scan_number': precursor_ms1_scan,
+            'ms2_scan_number': scan_number,
+            'mz_array': ms1_data['mz_array'].tolist(),
+            'intensity_array': ms1_data['intensity_array'].tolist(),
+            'instrument_settings': final_instrument_settings.tolist(),
+            'precursor_mz': float(scan.get('precursor_mz', 0.0)),
+            'label': float(ms2_info['label']),
+            'compound_name': str(ms2_info.get('Compound_name', "")),
+            'source_file': source_file,
+            'dataset_id': dataset_id,
+            'mzml_filepath': mzml_filepath
+        })
     return data_pairs
 
 def process_single_file(args: Tuple[str, str, str, Dict[int, Dict[str, float]], int, int, int]) -> List[Dict[str, Any]]:
     """Process a single mzML-CSV pair. Designed to run in parallel."""
+    # Added dataset_id to the tuple
     mzml_file, csv_file, dataset_id, feature_stats, file_idx, total_files, max_peaks = args
     process = psutil.Process()
     file_base = os.path.basename(mzml_file).split('.')[0]
@@ -336,6 +276,7 @@ def process_single_file(args: Tuple[str, str, str, Dict[int, Dict[str, float]], 
 
 
 def process_exceptional_dataset(
+        # pairs_for_dataset now contains (mzml, csv, dataset_id)
         pairs_for_dataset: List[Tuple[str, str, str]],
         feature_stats: Dict[int, Dict[str, float]],
         cap_value: int,
@@ -343,15 +284,17 @@ def process_exceptional_dataset(
 ) -> Tuple[List[Dict[str, Any]], int, int]:
     """
     Processes an exceptional dataset serially to sample by MS1-grouped MS2 scans.
+    This is memory-intensive and slow, only for special cases.
     Returns: (sampled_data_pairs, total_files_processed, total_ms2s_taken)
     """
     logger.warning(
-        f"  Starting serial processing for {len(pairs_for_dataset)} files... This may take a while.")
+        f"  Starting serial processing for {len(pairs_for_dataset)} files... This may take a while and use significant memory.")
 
     all_data_pairs = []
     total_files_processed = 0
     process = psutil.Process()
 
+    # Unpack dataset_id
     for mzml_file, csv_file, dataset_id in pairs_for_dataset:
         file_base = os.path.basename(mzml_file).split('.')[0]
         logger.info(f"    Loading file: {file_base} (Dataset: {dataset_id})")
@@ -382,8 +325,10 @@ def process_exceptional_dataset(
 
     logger.info(f"  Loaded {len(all_data_pairs)} total pairs. Grouping by MS1 scan number...")
 
+    # Group by a composite key (file + ms1_scan) to avoid collisions
     ms1_groups = {}
     for pair in all_data_pairs:
+        # Use a tuple of (source_file, ms1_scan_number) as a unique key
         ms1_key = (pair['source_file'], pair['ms1_scan_number'])
         if ms1_key not in ms1_groups:
             ms1_groups[ms1_key] = []
@@ -400,14 +345,17 @@ def process_exceptional_dataset(
     for ms1_key in ms1_keys:
         child_ms2_pairs = ms1_groups[ms1_key]
 
+        # Check if adding this group exceeds the cap
         if current_ms2_count + len(child_ms2_pairs) <= cap_value:
             sampled_data_pairs.extend(child_ms2_pairs)
             current_ms2_count += len(child_ms2_pairs)
+        # If we're still at 0, add the first group even if it exceeds the cap
         elif current_ms2_count == 0:
             logger.warning(
                 f"    First MS1 group (size {len(child_ms2_pairs)}) exceeds cap {cap_value}. Adding it anyway.")
             sampled_data_pairs.extend(child_ms2_pairs)
             current_ms2_count += len(child_ms2_pairs)
+        # Once we're over the cap (and not at 0), we can stop.
         elif current_ms2_count > 0:
             break
 
@@ -461,13 +409,17 @@ def load_file_pairs(file_list_path: str, test_mode: bool = False, max_files: int
             continue
         parts = line.split(",")
         if len(parts) >= 2:
+            # --- Store the full absolute path ---
             mzml_path = os.path.abspath(parts[0].strip())
             csv_path = os.path.abspath(parts[1].strip())
 
+            # Only check for blank files if exclude_blank is True
             if exclude_blank:
+                # Get just the filename (not the full path) for checking
                 mzml_filename = os.path.basename(mzml_path).lower()
                 csv_filename = os.path.basename(csv_path).lower()
 
+                # Skip files with "blank" in the name (case-insensitive)
                 if "blank" in mzml_filename or "blank" in csv_filename:
                     excluded_count += 1
                     logger.debug(
@@ -527,18 +479,22 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
     if exceptional_dataset_ids is None:
         exceptional_dataset_ids = []
 
+    # File loading and stat computation are now done *before* this function is called.
     logger.info(f"Processing {len(file_pairs)} file pairs.")
 
     msv_regex = re.compile(r'(MSV\d{9})')
     datasets_map = {}
     for mzml_path, csv_path in file_pairs:
+        # Use mzml_path for regex search, as it's more reliable
         match = msv_regex.search(mzml_path)
         dataset_id = match.group(1) if match else 'unknown'
         if dataset_id not in datasets_map:
             datasets_map[dataset_id] = []
-        datasets_map[dataset_id].append((mzml_path, csv_path, dataset_id))
+        # Store the dataset_id with the file pair
+        datasets_map[dataset_id].append((mzml_path, csv_path, dataset_id))  # <-- MODIFIED
     logger.info(f"Grouped {len(file_pairs)} files into {len(datasets_map)} datasets.")
 
+    # --- Step 1 (WAS 1.5): Apply capping and sampling ---
     all_files_to_process = []
     dataset_path = os.path.join(lance_uri, table_name)
     first_write_done = False
@@ -549,6 +505,7 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
             if dataset_id == 'unknown' or (reporting_df is not None and dataset_id not in reporting_df.index):
                 if dataset_id != 'unknown':
                     logger.warning(f"Dataset {dataset_id} not in reporting CSV. Skipping report update.")
+            # pairs_for_dataset is now List[Tuple[str, str, str]]
             all_files_to_process.extend(pairs_for_dataset)
             if reporting_df is not None and dataset_id in reporting_df.index:
                 reporting_df.loc[dataset_id, 'number_of_mzmls_considered'] = len(pairs_for_dataset)
@@ -566,9 +523,10 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
 
             if dataset_id in exceptional_dataset_ids:
                 logger.warning(f"  Found exceptional dataset {dataset_id}. Processing serially...")
+                # pairs_for_dataset (List[Tuple[str,str,str]]) is passed directly
                 sampled_pairs, files_processed, ms2s_taken = process_exceptional_dataset(
                     pairs_for_dataset,
-                    global_feature_stats,
+                    global_feature_stats,  # Pass the stats
                     cap_value,
                     max_peaks
                 )
@@ -588,8 +546,9 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
             if total_ms2_from_csv <= cap_value:
                 logger.info(f"  {dataset_id}: Has {total_ms2_from_csv} MS2 (<= cap). Taking all files.")
                 actual_total_ms2 = 0
+                # pair_with_id is (mzml, csv, dataset_id)
                 for pair_with_id in pairs_for_dataset:
-                    ms2_df = load_ms2_data(pair_with_id[1])
+                    ms2_df = load_ms2_data(pair_with_id[1])  # index 1 is csv_file
                     count = 0 if ms2_df.empty else len(ms2_df)
                     if count > 0:
                         dataset_files_to_add.append(pair_with_id)
@@ -599,6 +558,7 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
                 logger.info(f"  {dataset_id}: Has {total_ms2_from_csv} MS2 (> cap). Sampling by file...")
                 ms2_counts_map = {}
                 actual_total_ms2 = 0
+                # pair_with_id is (mzml, csv, dataset_id)
                 for pair_with_id in pairs_for_dataset:
                     csv_file = pair_with_id[1]
                     ms2_df = load_ms2_data(csv_file)
@@ -627,6 +587,7 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
             reporting_df.loc[dataset_id, 'number_of_MS2s_taken'] = dataset_ms2_count
             all_files_to_process.extend(dataset_files_to_add)
 
+    # --- Step 2: Process *normal* sampled files in batches ---
     logger.info(
         f"\n--- Step 2: Processing {len(all_files_to_process)} *normal* sampled files in batches of {batch_size} ---")
 
@@ -638,11 +599,14 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
         return
 
     for batch_idx in range(0, len(all_files_to_process), batch_size):
+        # batch_pairs is List[Tuple[str, str, str]]
         batch_pairs = all_files_to_process[batch_idx:batch_idx + batch_size]
         logger.info(f"\n=== Processing batch {batch_idx // batch_size + 1} ({len(batch_pairs)} files) ===")
 
         process_args = [
+            # Create the 7-element tuple for process_single_file
             (mzml_file, csv_file, dataset_id, global_feature_stats, idx, len(all_files_to_process), max_peaks)
+            # Unpack the 3-element tuple
             for idx, (mzml_file, csv_file, dataset_id) in enumerate(batch_pairs, batch_idx + 1)
         ]
 
@@ -671,22 +635,25 @@ def parse_args():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter
     )
     parser.add_argument('--train_file_list', type=str, default='train_file_paths.txt')
-    parser.add_argument('--val_file_list', type=str, default='validation_file_paths.txt')
+    parser.add_argument('--test_file_list', type=str, default='test_file_paths.txt')
     parser.add_argument('--lance_uri', type=str, default='./mass_spec_lance_store')
     parser.add_argument('--train_table', type=str, default='train_data')
-    parser.add_argument('--val_table', type=str, default='validation_data')
+    parser.add_argument('--test_table', type=str, default='test_data')
     parser.add_argument('--workers', type=int, default=max(1, cpu_count() - 1))
     parser.add_argument('--max_peaks', type=int, default=400)
     parser.add_argument('--test_mode', action='store_true')
     parser.add_argument('--max_test_files', type=int, default=3)
     parser.add_argument('--skip_train', action='store_true')
-    parser.add_argument('--skip_val', action='store_true')
+    parser.add_argument('--skip_test', action='store_true')
     parser.add_argument('--batch_size', type=int, default=10)
     parser.add_argument('--cap_training_set', type=int, default=-1)
-    parser.add_argument('--cap_val_set', type=int, default=-1)
+    parser.add_argument('--cap_test_set', type=int, default=-1)
     parser.add_argument('--training_set_csv', type=str, default='training_set.csv')
-    parser.add_argument('--val_set_csv', type=str, default='val_set.csv')
+    parser.add_argument('--test_set_csv', type=str, default='test_set.csv')
     parser.add_argument('--exceptional_dataset_ids', type=str, nargs='*', default=[])
+
+    # --- I'm adding the argument you originally asked for, just in case ---
+    # --- But the script logic above already adds the filepath by default ---
     parser.add_argument('--add_filepath_column', action='store_true',
                         help='(This is now default) Add mzml_filepath column.')
 
@@ -699,20 +666,15 @@ def load_reporting_df(csv_path: str) -> pd.DataFrame:
         logger.error(f"Reporting CSV not found: {csv_path}")
         return None
     try:
-        # 1. Read the CSV
         df = pd.read_csv(csv_path, delimiter=';')
-
-        # 2. Force conversion to numeric, turning any blanks/errors into NaN
-        # Then fill NaN with 0 and convert to int.
-        if 'ms2' in df.columns:
-            df['ms2'] = pd.to_numeric(df['ms2'], errors='coerce').fillna(0).astype(int)
-
-        # 3. Standardize other tracking columns
-        df['number_of_mzmls_considered'] = pd.to_numeric(df.get('number_of_mzmls_considered', 0),
-                                                         errors='coerce').fillna(0).astype(int)
-        df['number_of_MS2s_taken'] = pd.to_numeric(df.get('number_of_MS2s_taken', 0), errors='coerce').fillna(0).astype(
-            int)
-
+        if 'dataset_id' not in df.columns:
+            logger.error(f"'dataset_id' column not found in {csv_path}")
+            return None
+        if 'ms2' not in df.columns:
+            logger.error(f"'ms2' column (total MS2 count) not found in {csv_path}")
+            return None
+        df['number_of_mzmls_considered'] = 0
+        df['number_of_MS2s_taken'] = 0
         df = df.set_index('dataset_id')
         return df
     except Exception as e:
@@ -720,6 +682,7 @@ def load_reporting_df(csv_path: str) -> pd.DataFrame:
         return None
 
 
+# --- MODIFIED MAIN EXECUTION BLOCK ---
 if __name__ == '__main__':
     args = parse_args()
     start_time = datetime.now()
@@ -727,6 +690,7 @@ if __name__ == '__main__':
     logger.info(f"Mass Spectrometry Data → Lance Converter")
     logger.info(f"Started at: {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info(f"{'#' * 80}")
+    # ... (logging config) ...
     logger.info(f"Configuration:")
     logger.info(f"  Lance URI: {args.lance_uri}")
     logger.info(f"  Workers: {args.workers}")
@@ -735,88 +699,84 @@ if __name__ == '__main__':
     if args.test_mode:
         logger.info(f"  Max test files: {args.max_test_files}")
     logger.info(f"  Train Cap: {args.cap_training_set if args.cap_training_set > 0 else 'None'}")
-    logger.info(f"  Val Cap: {args.cap_val_set if args.cap_val_set > 0 else 'None'}")
+    logger.info(f"  Test Cap: {args.cap_test_set if args.cap_test_set > 0 else 'None'}")
     logger.info(f"  Train Report: {args.training_set_csv}")
-    logger.info(f"  Val Report: {args.val_set_csv}")
+    logger.info(f"  Test Report: {args.test_set_csv}")
     logger.info(f"  Exceptional Datasets: {args.exceptional_dataset_ids}")
     logger.info(f"{'#' * 80}")
 
     os.makedirs(args.lance_uri, exist_ok=True)
 
+    # Load reporting dataframes
     train_report_df = None
-    val_report_df = None
-    if not args.skip_train:
-        train_report_df = load_reporting_df(args.training_set_csv)
-    if not args.skip_val:
-        val_report_df = load_reporting_df(args.val_set_csv)
+    test_report_df = None
+    # if not args.skip_train:
+    #     train_report_df = load_reporting_df(args.training_set_csv)
+    if not args.skip_test:
+        test_report_df = load_reporting_df(args.test_set_csv)
 
+    # --- NEW: Centralized Stats Computation ---
     training_stats = {}
     train_file_pairs = []
-    val_file_pairs = []
+    test_file_pairs = []
 
+    # 1. Load train file list and compute stats (for stats only, NOT creating train_data lance)
+    # IMPORTANT: Exclude blanks from stats computation
     if not args.skip_train:
-        if os.path.exists(args.train_file_list) and train_report_df is not None:
+        if os.path.exists(args.train_file_list):
+            # Load training pairs excluding blanks for stats computation
             train_file_pairs = load_file_pairs(args.train_file_list, args.test_mode, args.max_test_files,
                                                exclude_blank=True)
             if train_file_pairs:
                 training_stats = compute_global_stats(train_file_pairs)
+                logger.info("✓ Training statistics computed from training files (train_data lance will NOT be created)")
             else:
                 logger.error("No training files found.")
                 train_file_pairs = []
         else:
             if not os.path.exists(args.train_file_list):
                 logger.warning(f"Training file list not found: {args.train_file_list}")
-            if train_report_df is None:
-                logger.warning(f"Could not load or validate training report file: {args.training_set_csv}")
+
             train_file_pairs = []
 
-    if not args.skip_val:
-        if os.path.exists(args.val_file_list) and val_report_df is not None:
-            val_file_pairs = load_file_pairs(args.val_file_list, args.test_mode, args.max_test_files,
-                                             exclude_blank=True)
+    # 2. Load test file list (excluding blanks)
+    if not args.skip_test:
+        if os.path.exists(args.test_file_list) and test_report_df is not None:
+            test_file_pairs = load_file_pairs(args.test_file_list, args.test_mode, args.max_test_files,
+                                              exclude_blank=True)
         else:
-            if not os.path.exists(args.val_file_list):
-                logger.warning(f"Validation file list not found: {args.val_file_list}")
-            if val_report_df is None:
-                logger.warning(f"Could not load or validate validation report file: {args.val_set_csv}")
+            if not os.path.exists(args.test_file_list):
+                logger.warning(f"Test file list not found: {args.test_file_list}")
+            if test_report_df is None:
+                logger.warning(f"Could not load or validate test report file: {args.test_set_csv}")
 
-    if not training_stats and (not args.skip_train or not args.skip_val):
-        logger.error("Could not compute training statistics. Aborting all processing.")
+    # Check if stats computation failed
+    if not training_stats and not args.skip_test:
+        logger.error("Could not compute training statistics. Aborting test set processing.")
     else:
-        if not args.skip_val and val_file_pairs:
-            logger.info("\nProcessing validation set using TRAINING statistics...")
-            process_file_list(
-                file_pairs=val_file_pairs,
-                global_feature_stats=training_stats,
-                lance_uri=args.lance_uri,
-                table_name=args.val_table,
-                num_workers=args.workers,
-                max_peaks=args.max_peaks,
-                batch_size=args.batch_size,
-                cap_value=args.cap_val_set,
-                reporting_df=val_report_df,
-                reporting_csv_path=args.val_set_csv,
-                exceptional_dataset_ids=args.exceptional_dataset_ids
-            )
-            val_report_df.reset_index().to_csv(args.val_set_csv, index=False, sep=';')
-            logger.info(f"Updated validation report saved to {args.val_set_csv}")
 
-        if not args.skip_train and train_file_pairs:
+        # 3. Process Test Set (using training_stats computed from train files)
+        if not args.skip_test and test_file_pairs:
+            logger.info("\nProcessing test set using TRAINING statistics...")
             process_file_list(
-                file_pairs=train_file_pairs,
-                global_feature_stats=training_stats,
+                file_pairs=test_file_pairs,
+                global_feature_stats=training_stats,  # <-- PASSING TRAINING STATS
                 lance_uri=args.lance_uri,
-                table_name=args.train_table,
+                table_name=args.test_table,
                 num_workers=args.workers,
                 max_peaks=args.max_peaks,
                 batch_size=args.batch_size,
-                cap_value=args.cap_training_set,
-                reporting_df=train_report_df,
-                reporting_csv_path=args.training_set_csv,
+                cap_value=args.cap_test_set,
+                reporting_df=test_report_df,
+                reporting_csv_path=args.test_set_csv,
                 exceptional_dataset_ids=args.exceptional_dataset_ids
             )
-            train_report_df.reset_index().to_csv(args.training_set_csv, index=False, sep=';')
-            logger.info(f"Updated training report saved to {args.training_set_csv}")
+            test_report_df.reset_index().to_csv(args.test_set_csv, index=False, sep=';')
+            logger.info(f"Updated test report saved to {args.test_set_csv}")
+
+        # NOTE: train_data (lance) is NOT created - only stats are computed from training files
+
+    # --- End of modifications ---
 
     end_time = datetime.now()
     duration = end_time - start_time
@@ -825,7 +785,7 @@ if __name__ == '__main__':
     logger.info(f"Lance database location: {args.lance_uri}")
     logger.info(f"Total time: {duration}")
 
-    for table_name in [args.train_table, args.val_table]:
+    for table_name in [args.test_table]:
         dataset_path = os.path.join(args.lance_uri, table_name)
         if os.path.exists(dataset_path):
             try:
