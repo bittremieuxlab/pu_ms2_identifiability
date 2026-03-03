@@ -71,7 +71,6 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                 mz_array = spectrum.get('m/z array')
                 intensity_array = spectrum.get('intensity array')
 
-                # Default precursor to 0.0 (will be filled if MS2)
                 mzml_precursor_mz = 0.0
 
                 try:
@@ -92,12 +91,10 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                         mz_array = mz_spectrum.mz
                         intensity_array = mz_spectrum.intensity
 
-                    # --- NEW LOGIC: Extract Precursor for MS2 ---
                     elif ms_level == 2:
                         # Navigate the nested dictionary provided by pyteomics
                         precursors = spectrum.get('precursorList', {}).get('precursor', [])
                         if precursors:
-                            # We typically take the first precursor in the list
                             selected_ions = precursors[0].get('selectedIonList', {}).get('selectedIon', [])
                             if selected_ions:
                                 # Get the value
@@ -110,7 +107,7 @@ def load_and_preprocess_scans(mzml_file: str, max_peaks: int = 400) -> List[Dict
                         'ms_level': ms_level,
                         'mz_array': mz_array,
                         'intensity_array': intensity_array,
-                        'precursor_mz': mzml_precursor_mz  # <-- Store the extracted value
+                        'precursor_mz': mzml_precursor_mz
                     })
 
                 except Exception as e:
@@ -232,7 +229,6 @@ def align_and_format_data(scan_list: List[Dict[str, Any]],
 
 def process_single_file(args: Tuple[str, str, str, Dict[int, Dict[str, float]], int, int, int]) -> List[Dict[str, Any]]:
     """Process a single mzML-CSV pair. Designed to run in parallel."""
-    # Added dataset_id to the tuple
     mzml_file, csv_file, dataset_id, feature_stats, file_idx, total_files, max_peaks = args
     process = psutil.Process()
     file_base = os.path.basename(mzml_file).split('.')[0]
@@ -340,7 +336,6 @@ def process_exceptional_dataset(
         if current_ms2_count + len(child_ms2_pairs) <= cap_value:
             sampled_data_pairs.extend(child_ms2_pairs)
             current_ms2_count += len(child_ms2_pairs)
-        # If we're still at 0, add the first group even if it exceeds the cap
         elif current_ms2_count == 0:
             logger.warning(
                 f"    First MS1 group (size {len(child_ms2_pairs)}) exceeds cap {cap_value}. Adding it anyway.")
@@ -516,7 +511,7 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
                 # pairs_for_dataset (List[Tuple[str,str,str]]) is passed directly
                 sampled_pairs, files_processed, ms2s_taken = process_exceptional_dataset(
                     pairs_for_dataset,
-                    global_feature_stats,  # Pass the stats
+                    global_feature_stats,
                     cap_value,
                     max_peaks
                 )
@@ -538,7 +533,7 @@ def process_file_list(file_pairs: List[Tuple[str, str]],
                 actual_total_ms2 = 0
                 # pair_with_id is (mzml, csv, dataset_id)
                 for pair_with_id in pairs_for_dataset:
-                    ms2_df = load_ms2_data(pair_with_id[1])  # index 1 is csv_file
+                    ms2_df = load_ms2_data(pair_with_id[1])
                     count = 0 if ms2_df.empty else len(ms2_df)
                     if count > 0:
                         dataset_files_to_add.append(pair_with_id)
@@ -642,8 +637,6 @@ def parse_args():
     parser.add_argument('--test_set_csv', type=str, default='test_set.csv')
     parser.add_argument('--exceptional_dataset_ids', type=str, nargs='*', default=[])
 
-    # --- I'm adding the argument you originally asked for, just in case ---
-    # --- But the script logic above already adds the filepath by default ---
     parser.add_argument('--add_filepath_column', action='store_true',
                         help='(This is now default) Add mzml_filepath column.')
 
@@ -710,7 +703,6 @@ if __name__ == '__main__':
     test_file_pairs = []
 
     # 1. Load train file list and compute stats (for stats only, NOT creating train_data lance)
-    # IMPORTANT: Exclude blanks from stats computation
     if not args.skip_train:
         if os.path.exists(args.train_file_list):
             # Load training pairs excluding blanks for stats computation
