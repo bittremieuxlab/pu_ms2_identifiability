@@ -341,7 +341,6 @@ def process_exceptional_dataset(
                 f"    First MS1 group (size {len(child_ms2_pairs)}) exceeds cap {cap_value}. Adding it anyway.")
             sampled_data_pairs.extend(child_ms2_pairs)
             current_ms2_count += len(child_ms2_pairs)
-        # Once we're over the cap (and not at 0), we can stop.
         elif current_ms2_count > 0:
             break
 
@@ -697,7 +696,6 @@ if __name__ == '__main__':
     if not args.skip_test:
         test_report_df = load_reporting_df(args.test_set_csv)
 
-    # --- NEW: Centralized Stats Computation ---
     training_stats = {}
     train_file_pairs = []
     test_file_pairs = []
@@ -741,7 +739,7 @@ if __name__ == '__main__':
             logger.info("\nProcessing test set using TRAINING statistics...")
             process_file_list(
                 file_pairs=test_file_pairs,
-                global_feature_stats=training_stats,  # <-- PASSING TRAINING STATS
+                global_feature_stats=training_stats,
                 lance_uri=args.lance_uri,
                 table_name=args.test_table,
                 num_workers=args.workers,
