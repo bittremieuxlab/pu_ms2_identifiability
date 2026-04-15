@@ -104,13 +104,10 @@ class InstrumentSettingsEncoder(nn.Module):
 class MyModel(SpectrumTransformerEncoder):
     """Our custom model class."""
 
-    def __init__(self, instrument_hidden=64, instrument_out=16, *args, **kwargs):
+    def __init__(self,  instrument_out=16, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.precursor_mz_encoder = FloatEncoder(self.d_model)
-        self.instrument_encoder = InstrumentSettingsEncoder(
-            hidden_fc1=instrument_hidden,
-            output_dim=instrument_out
-        )
+
         self.token_projection = nn.Linear(self.d_model + instrument_out, self.d_model)
 
         self.apply(self.init_weights)
@@ -177,9 +174,8 @@ class SimpleSpectraTransformer(pl.LightningModule):
         self.spectrum_encoder = MyModel(
             d_model=d_model,
             n_layers=n_layers,
-            dropout=dropout,
-            instrument_hidden=hidden_fc1,
-            instrument_out=instrument_embedding_dim
+            dropout=dropout
+
         )
 
 
@@ -306,8 +302,7 @@ class SimpleSpectraTransformer(pl.LightningModule):
 
     def configure_optimizers(self):
         wd = self.weight_decay
-        instrument_params = list(self.spectrum_encoder.instrument_encoder.parameters()) + \
-                            list(self.spectrum_encoder.token_projection.parameters())
+        instrument_params = list(self.spectrum_encoder.token_projection.parameters())
 
         # 2. Grab the rest of the spectrum encoder (the actual transformer + mz encoder)
         # We use a set of memory IDs to ensure we don't include the instrument_params twice
@@ -322,6 +317,8 @@ class SimpleSpectraTransformer(pl.LightningModule):
             {"params": transformer_params, "lr": self.encoder_lr, "weight_decay": wd},
             {"params": instrument_params, "lr": self.linear_lr, "weight_decay": wd},
             {"params": self.fc_output.parameters(), "lr": self.linear_lr, "weight_decay": wd},
+            {"params": self.instrument_encoder.parameters(), "lr": self.linear_lr, "weight_decay": wd},
+            {"params": self.fc_combined.parameters(), "lr": self.linear_lr, "weight_decay": wd},
         ]
 
         if self.optimizer_name.lower() == "adam":
