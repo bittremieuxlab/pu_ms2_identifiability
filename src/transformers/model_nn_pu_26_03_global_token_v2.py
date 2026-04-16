@@ -110,7 +110,6 @@ class MyModel(SpectrumTransformerEncoder):
 
         self.token_projection = nn.Linear(self.d_model + instrument_out, self.d_model)
 
-        self.apply(self.init_weights)
 
     def global_token_hook(self, mz_array, intensity_array, precursor_mz=None,
                           inst_rep=None, *args, **kwargs):
@@ -124,16 +123,6 @@ class MyModel(SpectrumTransformerEncoder):
         global_token = self.token_projection(combined)
         return global_token
 
-    def init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.LayerNorm):
-            nn.init.ones_(module.weight)
-            nn.init.zeros_(module.bias)
-        elif isinstance(module, nn.Embedding):
-            nn.init.normal_(module.weight, mean=0, std=1)
 
 
 class SimpleSpectraTransformer(pl.LightningModule):
@@ -198,13 +187,9 @@ class SimpleSpectraTransformer(pl.LightningModule):
         self.val_recall = BinaryRecall()
         self.validation_threshold = validation_threshold
 
-        self.apply(self.init_weights)
 
-    def init_weights(self, module):
-        if isinstance(module, nn.Linear):
-            nn.init.kaiming_normal_(module.weight, mode='fan_in', nonlinearity='relu')
-            if module.bias is not None:
-                nn.init.zeros_(module.bias)
+
+
     def forward(self, batch):
         mz_array = batch["mz"].float()
         intensity_array = batch["intensity"].float()
